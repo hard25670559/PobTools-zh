@@ -661,14 +661,24 @@ inline int MultiByteToWideChar(unsigned int codePage, unsigned long flags,
 		? std::string(input)
 		: std::string(input, static_cast<size_t>(inputLen));
 
-	if (output == nullptr || outputSize == 0) {
-		// An upper bound: never more wide characters than input bytes, plus
-		// the terminator when the input was given as terminated.
-		return static_cast<int>(slice.size()) + (inputLen < 0 ? 1 : 0);
-	}
-	const size_t written = pob_win_compat::Utf8ToWide(slice.c_str(), output,
-	                                                  static_cast<size_t>(outputSize));
-	return static_cast<int>(inputLen < 0 ? written + 1 : written);
+	// Convert into a buffer of our own first. Utf8ToWide always writes a
+	// terminator and reserves room for it, so handing it the caller's buffer
+	// directly costs one character: with an explicit input length Win32 fills
+	// the buffer completely and adds no terminator, so a caller that sized the
+	// buffer exactly -- the usual two-call pattern -- lost the last character
+	// of every string. File names came out as "Launch.lu".
+	std::wstring wide(slice.size() + 1, L'\0');
+	wide.resize(pob_win_compat::Utf8ToWide(slice.c_str(), &wide[0], wide.size()));
+
+	// Win32 counts the terminator only when the input was given terminated.
+	const size_t needed = wide.size() + (inputLen < 0 ? 1 : 0);
+	if (output == nullptr || outputSize == 0)
+		return static_cast<int>(needed);
+	if (needed > static_cast<size_t>(outputSize)) return 0;
+	if (!wide.empty())
+		std::memcpy(output, wide.data(), wide.size() * sizeof(wchar_t));
+	if (inputLen < 0) output[wide.size()] = L'\0';
+	return static_cast<int>(needed);
 }
 
 // ------------------------------------------- performance counter / misc
