@@ -4,6 +4,8 @@
 
 #include <GLFW/glfw3.h>
 
+#include "mac_objc.h"
+
 // Hold the layer a window is drawn through at the density of the display it is
 // on.
 //
@@ -23,14 +25,12 @@
 
 namespace pob_apple {
 
-using layer_id = struct objc_object*;
-using layer_sel = struct objc_selector*;
+using layer_id = pob_objc_id;
+using layer_sel = pob_objc_sel;
 
+// Not through glfw3native.h: that header typedefs BOOL the way the Win32
+// compatibility layer already spells it.
 extern "C" void* glfwGetCocoaWindow(GLFWwindow*);
-// Declared by hand: glfw3native.h and objc/runtime.h both typedef BOOL, which
-// the Win32 compatibility layer has already spelled its own way.
-extern "C" layer_sel sel_getUid(const char*);
-extern "C" void objc_msgSend(void);
 
 inline layer_id Send(layer_id self, const char* name)
 {

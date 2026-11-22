@@ -7,6 +7,8 @@
 #include "host/error_log.h"
 #include "host/hang_watch.h"
 #include "host/perf_log.h"
+#include <typeinfo>
+
 #include "ui_local.h"
 
 #include <filesystem>
@@ -170,7 +172,9 @@ static int l_##Name(lua_State* L) {                                \
 #define SG_LUA_CPP_FUN_END()                                    \
 		catch (ui_expectationFailed_s) { return -1; }           \
 		catch (std::exception& e) {                             \
-			lua_pushfstring(L, "C++ exception:\n%s", e.what()); \
+			/* TEMP DIAG: type name, for an exception with no message */ \
+			lua_pushfstring(L, "C++ exception [%s]:\n%s",       \
+			                typeid(e).name(), e.what());        \
 			return -1;                                          \
 		}                                                       \
     };                                                          \

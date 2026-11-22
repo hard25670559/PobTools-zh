@@ -47,6 +47,14 @@ public:
 
 	bool	Run(int argc, char** argv);
 
+	// Run, taken apart so several engines can be driven from one thread:
+	// open one, step each in turn, shut down the ones that are finished.
+	// Run itself still calls these in the order it always had.
+	bool	RunStart(int argc, char** argv);
+	bool	RunOneFrame();
+	void	RunCoreShutdown();
+	bool	RunFinish();
+
 	byte	GlfwKeyToKey(int key, int scancode);
 	char	GlfwKeyExtraChar(int key);
 

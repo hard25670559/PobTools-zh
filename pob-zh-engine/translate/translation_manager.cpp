@@ -2686,8 +2686,17 @@ void translation_wait_ready(void) {
     startup_trace_mark("translation dictionaries ready: %s", translation_get_init_stats());
 }
 
+/* 同一個行程裡可能有不只一個 POB 在跑(macOS 的啟動器把 POB 開在自己的行程裡,
+** 這樣 Dock 只佔一格、每個 build 都列得出來)。字典是唯讀的,共用沒有問題 ——
+** 會出事的是關閉:先關的那個會把還在用的人的字典清掉。
+**
+** 所以數人頭:最後一個離開的才真的關。單一 POB 的情形數字就是 0 跟 1,
+** 行為與加入計數之前完全相同。 */
+static std::atomic<int> s_users{0};
+
 void translation_init(void) {
     translation_wait_ready();
+    s_users.fetch_add(1, std::memory_order_relaxed);
     if (s_initialized) return;
     s_initialized = true;
     s_init_stats.async = false; /* F3 reload 走這裡,統計行不能再說 in background */
@@ -2696,6 +2705,7 @@ void translation_init(void) {
 
 void translation_init_async(void) {
     translation_wait_ready();
+    s_users.fetch_add(1, std::memory_order_relaxed);
     if (s_initialized) return;
     s_initialized = true;
     s_ready.store(false, std::memory_order_release);
@@ -2860,6 +2870,8 @@ static void do_init(void) {
 
 void translation_shutdown(void) {
     translation_wait_ready();
+    /* 還有人在用:只記下這一個走了,字典留給其他人。 */
+    if (s_users.fetch_sub(1, std::memory_order_acq_rel) > 1) return;
     s_translations.clear();
     s_reverse.clear();
     s_reverse_pattern.clear();
@@ -2936,6 +2948,8 @@ void translation_shutdown(void) {
 }
 
 void translation_reload(void) {
+    /* 重載不是離開:計數不動,先清再建。 */
+    s_users.fetch_add(1, std::memory_order_relaxed);
     translation_shutdown();
     translation_init();
     OutputDebugStringA("[pob-proxy] Translation reloaded (F3)\n");

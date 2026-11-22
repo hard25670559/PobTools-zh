@@ -8,15 +8,13 @@
 // Declared by hand rather than through AppKit's headers: this is included from
 // files that also reach the Win32 compatibility layer, and <objc/objc.h> and
 // Foundation both typedef BOOL the way that layer already spells it.
+#include "mac_objc.h"
+
 namespace pob_mac {
 
-using mac_id = struct objc_object*;
-using mac_sel = struct objc_selector*;
-using mac_class = struct objc_class*;
-
-extern "C" mac_sel sel_getUid(const char*);
-extern "C" mac_class objc_getClass(const char*);
-extern "C" void objc_msgSend(void);
+using mac_id = pob_objc_id;
+using mac_sel = pob_objc_sel;
+using mac_class = pob_objc_class;
 
 inline void MakeAccessoryApp()
 {

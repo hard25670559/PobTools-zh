@@ -653,7 +653,19 @@ sys_main_c::sys_main_c()
 	std::tie(userPath, userPathReason) = FindUserPath();
 }
 
-bool sys_main_c::Run(int argc, char** argv)
+// Run, taken apart.
+//
+// macOS only allows windows to be made and serviced on the main thread, so
+// several POBs in one process cannot each have a thread; one thread has to
+// take turns. These four are the turns: open an engine, step it, shut it
+// down, finish. That is what lets POB's windows belong to the launcher's own
+// process -- one icon in the Dock, every open build listed under it.
+//
+// Run below calls them in the same order, inside the same try, as the single
+// function this was; running one POB is unchanged.
+
+// Everything before the first frame: system handles, the watchdog, core->Init.
+bool sys_main_c::RunStart(int argc, char** argv)
 {
 	initialised = false;
 	exitFlag = false;
@@ -695,7 +707,6 @@ bool sys_main_c::Run(int argc, char** argv)
 
 	initialised = true;
 
-	try {
 #ifdef _WIN32
 		// Enable translation to catch C exceptions if debugger is not present
 		if ( !debuggerRunning ) {
@@ -719,46 +730,57 @@ bool sys_main_c::Run(int argc, char** argv)
 		// Initialise engine
 		core->Init(argc, argv);
 
-		// Run frame loop
-		while (exitFlag == false) {
-			// One store per iteration, before any of the work: whatever stops
-			// below, the heartbeat stops with it.
-			HangWatch::Beat();
-			if (headless) {
-				// No window: nothing to poll, nothing that can ask to close. The
-				// host closing our stdin is the close request. Pace at 50 ms --
-				// enough to pump POB's update-check subscript and answer requests
-				// promptly, cheap enough to idle for hours (the 12-hour re-check
-				// in Launch.lua only needs OnFrame to run at all).
-				if (HeadlessIpc::HostGone()) {
-					Exit();
-					break;
-				}
-				core->Frame();
-				if (threadError) {
-					Error(threadError);
-				}
-				Sleep(50);
-				continue;
-			}
-			if (minimized) {
-				glfwWaitEventsTimeout(0.1);
-			}
-			else {
-				glfwPollEvents();
-			}
-			auto wnd = (GLFWwindow*)video->GetWindowHandle();
-			if (glfwWindowShouldClose(wnd)) {
+	return true;
+}
+
+// One pass of the frame loop; false when this engine is finished.
+bool sys_main_c::RunOneFrame()
+{
+	if (exitFlag) return false;
+
+		// One store per iteration, before any of the work: whatever stops
+		// below, the heartbeat stops with it.
+		HangWatch::Beat();
+		if (headless) {
+			// No window: nothing to poll, nothing that can ask to close. The
+			// host closing our stdin is the close request. Pace at 50 ms --
+			// enough to pump POB's update-check subscript and answer requests
+			// promptly, cheap enough to idle for hours (the 12-hour re-check
+			// in Launch.lua only needs OnFrame to run at all).
+			if (HeadlessIpc::HostGone()) {
 				Exit();
-				break;
+				return false;
 			}
 			core->Frame();
-
 			if (threadError) {
 				Error(threadError);
 			}
+			Sleep(50);
+			// Headless has no window to poll; this pass is done.
+			return !exitFlag;
 		}
+		if (minimized) {
+			glfwWaitEventsTimeout(0.1);
+		}
+		else {
+			glfwPollEvents();
+		}
+		auto wnd = (GLFWwindow*)video->GetWindowHandle();
+		if (glfwWindowShouldClose(wnd)) {
+			Exit();
+			return false;
+		}
+		core->Frame();
 
+		if (threadError) {
+			Error(threadError);
+		}
+		return !exitFlag;
+}
+
+// The engine's own shutdown, once its frame loop is over.
+void sys_main_c::RunCoreShutdown()
+{
 		// The performance log's per-page summary, if the log is on.
 		PerfLog::Shutdown();
 
@@ -766,36 +788,12 @@ bool sys_main_c::Run(int argc, char** argv)
 		startup_trace_mark("shutdown: frame loop left, core shutting down");
 		core->Shutdown();
 		startup_trace_mark("shutdown: core shutdown complete");
-	}
-#ifdef _WIN32
-	catch (EXCEPTION_POINTERS* exPtr) {
-		// Before the message below, which lives and dies with the console window:
-		// the same crash, written down with a stack and the breadcrumb, in the
-		// folder the settings page's button opens. Until v1.4.0 a crash left the
-		// user with one bare address they had to copy by hand.
-		HangWatch::ReportCrash(exPtr);
-		// C exception
-		PEXCEPTION_RECORD exRec = exPtr->ExceptionRecord;
-		DWORD code =  exRec->ExceptionCode;
-		char detail[512];
-		if (code == EXCEPTION_ACCESS_VIOLATION && exRec->NumberParameters == 2) {
-			sprintf_s(detail, 512, "Access violation: attempted to %s address %08Xh", 
-				exRec->ExceptionInformation[0]? "write to":"read from", static_cast<int>(exRec->ExceptionInformation[1]));
-		} else if (code == EXCEPTION_STACK_OVERFLOW) {
-			strcpy_s(detail, 512, "Stack overflow");
-		} else {
-			sprintf_s(detail, 512, "Error code: %08Xh", code);
-		}
-		Error("Critical error at address %08Xh:\n%s", static_cast<int>((ULONG_PTR)exRec->ExceptionAddress), detail);
-	}
-#else
-	catch (std::exception& e) {
-		// %s, not a trailing space: without it what() is dropped and every
-		// exception reports itself as a blank line.
-		Error("Exception: %s", e.what());
-	}
-#endif
+}
 
+// What is left after the exception handlers: the error screen, the system
+// handles, the watchdog.
+bool sys_main_c::RunFinish()
+{
 	if (exitMsg && headless) {
 		// A script error (ui_main DoError -> Exit(msg)). Same rule as Error():
 		// log it, tell the host, leave a non-zero exit code, never wait.
@@ -838,4 +836,44 @@ bool sys_main_c::Run(int argc, char** argv)
 	startup_trace_mark("shutdown: system handles freed, Run returning");
 
 	return restartFlag;
+}
+
+bool sys_main_c::Run(int argc, char** argv)
+{
+	try {
+		if (RunStart(argc, argv)) {
+			while (RunOneFrame()) {}
+			RunCoreShutdown();
+		}
+	}
+#ifdef _WIN32
+	catch (EXCEPTION_POINTERS* exPtr) {
+		// Before the message below, which lives and dies with the console window:
+		// the same crash, written down with a stack and the breadcrumb, in the
+		// folder the settings page's button opens. Until v1.4.0 a crash left the
+		// user with one bare address they had to copy by hand.
+		HangWatch::ReportCrash(exPtr);
+		// C exception
+		PEXCEPTION_RECORD exRec = exPtr->ExceptionRecord;
+		DWORD code =  exRec->ExceptionCode;
+		char detail[512];
+		if (code == EXCEPTION_ACCESS_VIOLATION && exRec->NumberParameters == 2) {
+			sprintf_s(detail, 512, "Access violation: attempted to %s address %08Xh", 
+				exRec->ExceptionInformation[0]? "write to":"read from", static_cast<int>(exRec->ExceptionInformation[1]));
+		} else if (code == EXCEPTION_STACK_OVERFLOW) {
+			strcpy_s(detail, 512, "Stack overflow");
+		} else {
+			sprintf_s(detail, 512, "Error code: %08Xh", code);
+		}
+		Error("Critical error at address %08Xh:\n%s", static_cast<int>((ULONG_PTR)exRec->ExceptionAddress), detail);
+	}
+#else
+	catch (std::exception& e) {
+		// %s, not a trailing space: without it what() is dropped and every
+		// exception reports itself as a blank line.
+		Error("Exception: %s", e.what());
+	}
+#endif
+
+	return RunFinish();
 }

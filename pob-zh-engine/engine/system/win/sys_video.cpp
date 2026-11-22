@@ -21,6 +21,7 @@
 #include <GLFW/glfw3.h>
 #if defined(__APPLE__)
 #include "../../../host/apple_layer_scale.h"
+#include "../../../host/mac_app_policy.h"
 #endif
 #if defined(_WIN32)
 #define GLFW_EXPOSE_NATIVE_WIN32
@@ -137,6 +138,19 @@ sys_video_c::sys_video_c(sys_IMain* sysHnd)
 #endif
 	glfwInitHint(GLFW_ANGLE_PLATFORM_TYPE, platformType);
 	glfwInit();
+#if defined(__APPLE__)
+	// Give up the Dock tile only while the launcher is there to hold one.
+	//
+	// After glfwInit, not before: GLFW makes the process a regular application
+	// as part of starting up, which undoes this if it is set earlier.
+	//
+	// POB_ZH_LAUNCHER_STAYS is set by the launcher from its own exit mode (see
+	// host_main.cpp). Started by hand, with no launcher anywhere, the variable
+	// is absent and POB keeps its tile.
+	if (const char* stays = ::getenv("POB_ZH_LAUNCHER_STAYS")) {
+		if (stays[0] == '1') pob_mac::MakeAccessoryApp();
+	}
+#endif
 }
 
 sys_video_c::~sys_video_c()

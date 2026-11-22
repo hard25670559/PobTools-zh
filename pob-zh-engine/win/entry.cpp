@@ -76,6 +76,53 @@
   #endif
 #endif
 
+// Driving several POBs from one thread.
+//
+// RunLuaFileAsWin owns the whole program until its window closes, so a second
+// POB cannot be started while the first is up. These three take the same
+// engine apart into the steps a caller can interleave: open one, step each of
+// them in turn, close the ones that are finished.
+//
+// Why it has to be this way on macOS: windows may only be made and serviced on
+// the main thread, so "one thread per POB" is not available. One thread taking
+// turns is. That in turn is what lets POB's windows belong to the launcher's
+// own process -- one icon in the Dock, with every open build listed under it,
+// which is what a Mac application looks like.
+//
+// Nothing here changes RunLuaFileAsWin, which still opens one POB and runs it
+// to the end.
+
+extern "C" SIMPLEGRAPHIC_DLL_PUBLIC void* PobEngineOpen(int argc, char** argv)
+{
+	startup_trace_begin("engine");
+	startup_trace_mark("PobEngineOpen entered");
+	auto* sys = new sys_main_c;
+	if (!sys->RunStart(argc, argv)) {
+		sys->RunFinish();
+		delete sys;
+		return nullptr;
+	}
+	return sys;
+}
+
+// False once this POB is finished; the caller then closes it.
+extern "C" SIMPLEGRAPHIC_DLL_PUBLIC int PobEngineStep(void* handle)
+{
+	if (!handle) return 0;
+	return static_cast<sys_main_c*>(handle)->RunOneFrame() ? 1 : 0;
+}
+
+extern "C" SIMPLEGRAPHIC_DLL_PUBLIC int PobEngineClose(void* handle)
+{
+	if (!handle) return 0;
+	auto* sys = static_cast<sys_main_c*>(handle);
+	sys->RunCoreShutdown();
+	sys->RunFinish();
+	const int rc = sys->exitCode;
+	delete sys;
+	return rc;
+}
+
 extern "C" SIMPLEGRAPHIC_DLL_PUBLIC int RunLuaFileAsWin(int argc, char** argv)
 {
 #ifdef _MEMTRAK_H

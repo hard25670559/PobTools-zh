@@ -1051,6 +1051,17 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
 		}
 
 		apply_engine_env(cfg, dir, cfg.game);
+#if defined(__APPLE__)
+		// Whether the launcher is still going to be there while POB runs.
+		//
+		// It decides which of the two owns the Dock tile. With the launcher
+		// staying (it waits for POB, or keeps its window), the tile is the
+		// launcher's and POB gives up its own -- otherwise the same icon sits
+		// there twice. With the launcher closing, POB has to keep its tile, or
+		// the Dock would show nothing at all for a program that is running.
+		::setenv("POB_ZH_LAUNCHER_STAYS",
+		         cfg.exitMode == LaunchExitMode::CloseLauncher ? "0" : "1", 1);
+#endif
 		// Held for the whole run: the engine reads Data\*.json on a background thread, and the updater
 		// would otherwise write a new pack straight over them.
 		appUpdater.SetHold(true);
