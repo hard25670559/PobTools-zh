@@ -19,6 +19,10 @@
 #include <unordered_map>
 #include <vector>
 
+#if !defined(_WIN32)
+#include "../engine/common/win_compat.h"
+#endif
+
 // 音效 — reference: POE-Filter-Audio-Manager; design: FilterSounds.dc.html.
 // Top: the sound folder. Left card: naming rules (add / edit / delete, saved to
 // Data\sound_rules.json). Right card: the folder's files with preview, per-file

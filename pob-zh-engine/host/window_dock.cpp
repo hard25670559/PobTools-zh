@@ -30,8 +30,18 @@
 #include <cstdarg>
 #include <cstdio>
 #include <thread>
+#if defined(_WIN32)
 #include <share.h>   // _SH_DENYWR, so the log can be read while it is being written
+#endif
 #include <string>
+
+// GLFW's native window accessor exists per platform: the Win32 form is what
+// the callers here ask for, because they use it for window subclassing and
+// messages. Those paths are already disabled on this platform, so the answer
+// that matters is "no native handle", which is the branch they handle.
+#if !defined(_WIN32)
+inline HWND glfwGetWin32Window(GLFWwindow* window) { (void)window; return nullptr; }
+#endif
 
 namespace WindowDock {
 namespace {

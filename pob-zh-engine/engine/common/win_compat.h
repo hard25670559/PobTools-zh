@@ -123,10 +123,43 @@ inline void OutputDebugStringA(const char* text)
 	}
 }
 
-// Win32: a thread's CPU register state. It only ever appears as a pointer in
-// declarations here, and nothing on this platform produces one, so an
-// incomplete type is all that is needed for those declarations to parse.
-struct CONTEXT;
+// Win32: a thread's CPU register state. Nothing on this platform fills one
+// in -- the stack walker that would read it is behind a platform branch -- but
+// one caller declares it as a value, so the type has to be complete. The
+// fields are the registers a 64-bit capture would hold, zeroed.
+struct CONTEXT {
+	unsigned long long Rax, Rbx, Rcx, Rdx, Rsi, Rdi, Rbp, Rsp;
+	unsigned long long R8, R9, R10, R11, R12, R13, R14, R15;
+	unsigned long long Rip;
+	unsigned long ContextFlags;
+};
+
+#if !defined(CONTEXT_FULL)
+#define CONTEXT_FULL 0x0010000Bu
+#endif
+
+// Win32: fills a CONTEXT with the caller's own registers. There is nothing to
+// read it here, so it is zeroed rather than left undefined.
+inline void RtlCaptureContext(CONTEXT* out)
+{
+	if (out != nullptr) *out = CONTEXT{};
+}
+
+// Win32 calling-convention macros. They select a stack convention that only
+// exists on 32-bit Windows; everywhere else the platform has one convention
+// and these expand to nothing.
+#if !defined(CALLBACK)
+#define CALLBACK
+#endif
+#if !defined(WINAPI)
+#define WINAPI
+#endif
+#if !defined(APIENTRY)
+#define APIENTRY
+#endif
+#if !defined(__stdcall)
+#define __stdcall
+#endif
 
 // Win32 window and message typedefs. The engine declares variables and
 // function parameters with these even in code paths that only run on Windows,
@@ -141,7 +174,16 @@ using LPARAM = intptr_t;
 using LRESULT = intptr_t;
 using ULONG_PTR = uintptr_t;
 using LONG_PTR = intptr_t;
-using WNDPROC = void*;
+// A window procedure is a function pointer, not an opaque handle: one caller
+// assigns a real function to it.
+using WNDPROC = LRESULT (*)(HWND, unsigned int, WPARAM, LPARAM);
+using LPWSTR = wchar_t*;
+using LPCWSTR = const wchar_t*;
+using LPSTR = char*;
+using LPCSTR = const char*;
+using LPDWORD = unsigned long*;
+using LPVOID = void*;
+using LPCVOID = const void*;
 
 // Win32: the base of the application-defined message range.
 #if !defined(WM_APP)
@@ -161,6 +203,15 @@ inline int fopen_s(FILE** out, const char* path, const char* mode)
 	*out = std::fopen(path, mode);
 	if (*out == nullptr) return errno != 0 ? errno : EINVAL;
 	return 0;
+}
+
+// Win32: frees what the API allocated with LocalAlloc. The shims that hand
+// out memory here use malloc, so this matches them.
+inline void* LocalFree(void* p) { std::free(p); return nullptr; }
+inline void* LocalAlloc(unsigned int flags, size_t size)
+{
+	(void)flags;
+	return std::malloc(size);
 }
 
 // Win32: suspends the calling thread for the given number of milliseconds.

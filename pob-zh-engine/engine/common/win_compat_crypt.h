@@ -235,12 +235,4 @@ inline int CryptUnprotectData(DATA_BLOB* in, wchar_t** description,
 	return pob_win_compat::FillBlob(out, bytes) ? 1 : 0;
 }
 
-// Win32: frees what the two calls above returned.
-inline void* LocalFree(void* p) { std::free(p); return nullptr; }
-inline void* LocalAlloc(unsigned int flags, size_t size)
-{
-	(void)flags;
-	return std::malloc(size);
-}
-
 #endif // !_WIN32

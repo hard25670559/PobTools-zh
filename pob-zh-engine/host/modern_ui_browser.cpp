@@ -598,7 +598,12 @@ struct Server {
 		addr.sin_port = 0;
 		if (bind(listener, (sockaddr*)&addr, sizeof(addr)) != 0) return false;
 		if (listen(listener, SOMAXCONN) != 0) return false;
+#if defined(_WIN32)
 		int alen = sizeof(addr);
+#else
+		// POSIX declares the length as socklen_t; Win32 uses int.
+		socklen_t alen = sizeof(addr);
+#endif
 		getsockname(listener, (sockaddr*)&addr, &alen);
 		port = ntohs(addr.sin_port);
 		return port != 0;
@@ -695,7 +700,11 @@ bool ModernUiBrowserStop(const std::wstring& exeDir, const std::wstring& game)
 
 bool ModernUiBrowserAvailable(const std::wstring& exeDir)
 {
+	#if defined(_WIN32)
 	return file_exists(exeDir + L"ui\\index.html") && file_exists(exeDir + L"ui\\theme2.html");
+#else
+	return file_exists(exeDir + L"ui/index.html") && file_exists(exeDir + L"ui/theme2.html");
+#endif
 }
 
 int ShowModernUiInBrowser(const std::wstring& exeDir, const std::wstring& game,

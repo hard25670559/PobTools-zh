@@ -45,6 +45,14 @@
 #include <string>
 #include <vector>
 
+// GLFW's native window accessor exists per platform: the Win32 form is what
+// the callers here ask for, because they use it for window subclassing and
+// messages. Those paths are already disabled on this platform, so the answer
+// that matters is "no native handle", which is the branch they handle.
+#if !defined(_WIN32)
+inline HWND glfwGetWin32Window(GLFWwindow* window) { (void)window; return nullptr; }
+#endif
+
 namespace {
 
 struct Report {

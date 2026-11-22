@@ -532,7 +532,7 @@ int RunFilterSelfTest(const std::wstring& exeDir)
 			if (!ok) {
 				rep.note("T11 skipped: could not read " + found.front().name);
 			} else {
-				std::ifstream in(std::filesystem::path(found.front()).path, std::ios::binary);
+				std::ifstream in(std::filesystem::path(found.front().path), std::ios::binary);
 				std::string raw((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 				rep.check(SerializeFilter(f) == raw,
 				          "T11 real filter round-trip byte-exact", found.front().name);
@@ -2867,7 +2867,7 @@ int RunFilterSelfTest(const std::wstring& exeDir)
 		const std::wstring file = std::wstring(tmp) + L"pobtools_icon_selftest_" + std::to_wstring(GetCurrentProcessId()) + L".png";
 		auto onDisk = [&] { return GetFileAttributesW(file.c_str()) != INVALID_FILE_ATTRIBUTES; };
 		auto put = [&](const std::vector<unsigned char>& b) {
-			std::ofstream(file, std::ios::binary).write((const char*)b.data(), (std::streamsize)b.size());
+			std::ofstream(std::filesystem::path(file), std::ios::binary).write((const char*)b.data(), (std::streamsize)b.size());
 		};
 		int fetches = 0;
 		auto load = [&](const std::vector<unsigned char>& served) {

@@ -8,6 +8,7 @@
 #include <windows.h>
 #else
 #include "../engine/common/win_compat.h"
+#include "../engine/common/win_compat_bcrypt.h"
 #endif
 #if defined(_WIN32)
 #include <bcrypt.h>

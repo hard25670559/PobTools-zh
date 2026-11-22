@@ -449,7 +449,11 @@ if (WIN32 OR APPLE)
         # pob:// / pob2:// "Open in PoB" links (HKCU registration + URI whitelist)
         host/pob_protocol.cpp
         host/window_manager.cpp
-        host/window_dock.cpp
+        # window_dock: the Windows version adopts POB windows into the launcher,
+        # which needs Win32 window ownership; the POSIX counterpart keeps the
+        # tab list without adopting.
+        $<$<BOOL:${WIN32}>:host/window_dock.cpp>
+        $<$<NOT:$<BOOL:${WIN32}>>:host/window_dock_posix.cpp>
         # the editor selftest asks the REAL loader what the engine would
         # return; without this it could only re-implement the merge and
         # would be testing its own copy of the rule instead of the engine
@@ -577,6 +581,11 @@ if (WIN32 OR APPLE)
         )
         add_executable(pob-zh WIN32 ${POBZH_SOURCES})
     else ()
+        # POSIX entry point, and the modern UI bridged to the browser path.
+        list(APPEND POBZH_SOURCES
+            host/host_main_posix.cpp
+            host/modern_ui_posix.cpp
+        )
         add_executable(pob-zh ${POBZH_SOURCES})
     endif ()
 

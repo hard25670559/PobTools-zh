@@ -125,6 +125,16 @@ inline size_t Utf8ToWide(const char* s, wchar_t* buffer, size_t size)
 
 } // namespace pob_win_compat
 
+#if !defined(FILE_ATTRIBUTE_REPARSE_POINT)
+#define FILE_ATTRIBUTE_REPARSE_POINT 0x00000400u
+#endif
+#if !defined(IO_REPARSE_TAG_SYMLINK)
+#define IO_REPARSE_TAG_SYMLINK 0xA000000Cu
+#endif
+#if !defined(IO_REPARSE_TAG_MOUNT_POINT)
+#define IO_REPARSE_TAG_MOUNT_POINT 0xA0000003u
+#endif
+
 // ------------------------------------------------- CreateFile flag values
 
 // The real Win32 values, because call sites combine them with bitwise or.
@@ -715,7 +725,15 @@ inline int FileTimeToSystemTime(const FILETIME* in, SYSTEMTIME* out)
 // with values that would be guesses.
 struct WIN32_FIND_DATAW {
 	unsigned long dwFileAttributes;
+	FILETIME ftCreationTime;
+	FILETIME ftLastAccessTime;
+	FILETIME ftLastWriteTime;
+	unsigned long nFileSizeHigh;
+	unsigned long nFileSizeLow;
+	unsigned long dwReserved0;      // the reparse tag, when the entry is one
+	unsigned long dwReserved1;
 	wchar_t cFileName[MAX_PATH];
+	wchar_t cAlternateFileName[14];
 };
 
 namespace pob_win_compat {
@@ -734,9 +752,21 @@ inline bool FillFindData(const std::string& dirPath, const dirent* entry, WIN32_
 	full += entry->d_name;
 
 	struct stat st = {};
+	*out = WIN32_FIND_DATAW{};
 	out->dwFileAttributes = FILE_ATTRIBUTE_NORMAL;
-	if (::stat(full.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
-		out->dwFileAttributes = FILE_ATTRIBUTE_DIRECTORY;
+	if (::lstat(full.c_str(), &st) == 0) {
+		if (S_ISDIR(st.st_mode)) out->dwFileAttributes = FILE_ATTRIBUTE_DIRECTORY;
+		if (S_ISLNK(st.st_mode)) {
+			// A symlink is the closest thing to a reparse point, and the
+			// reparse tag is what the caller checks to recognise one.
+			out->dwFileAttributes |= FILE_ATTRIBUTE_REPARSE_POINT;
+			out->dwReserved0 = IO_REPARSE_TAG_SYMLINK;
+		}
+		out->nFileSizeHigh = static_cast<unsigned long>(static_cast<unsigned long long>(st.st_size) >> 32);
+		out->nFileSizeLow = static_cast<unsigned long>(static_cast<unsigned long long>(st.st_size) & 0xFFFFFFFFULL);
+		PackFileTime(UnixToFileTimeTicks(st.st_mtime, 0), &out->ftLastWriteTime);
+		PackFileTime(UnixToFileTimeTicks(st.st_atime, 0), &out->ftLastAccessTime);
+		PackFileTime(UnixToFileTimeTicks(st.st_ctime, 0), &out->ftCreationTime);
 	}
 	return Utf8ToWide(entry->d_name, out->cFileName, MAX_PATH) > 0;
 }
@@ -2348,15 +2378,6 @@ inline HANDLE GlobalFree(HANDLE h) { std::free(h); return nullptr; }
 #if !defined(FILE_ATTRIBUTE_READONLY)
 #define FILE_ATTRIBUTE_READONLY 0x00000001u
 #endif
-#if !defined(FILE_ATTRIBUTE_REPARSE_POINT)
-#define FILE_ATTRIBUTE_REPARSE_POINT 0x00000400u
-#endif
-#if !defined(IO_REPARSE_TAG_SYMLINK)
-#define IO_REPARSE_TAG_SYMLINK 0xA000000Cu
-#endif
-#if !defined(IO_REPARSE_TAG_MOUNT_POINT)
-#define IO_REPARSE_TAG_MOUNT_POINT 0xA0000003u
-#endif
 #if !defined(ERROR_FILE_EXISTS)
 #define ERROR_FILE_EXISTS 80u
 #endif
@@ -2521,7 +2542,7 @@ struct MSG {
 
 struct WNDCLASSW {
 	unsigned int style;
-	void* lpfnWndProc;
+	WNDPROC lpfnWndProc;
 	int cbClsExtra;
 	int cbWndExtra;
 	HINSTANCE hInstance;
@@ -2535,7 +2556,7 @@ struct WNDCLASSW {
 struct WNDCLASSEXW {
 	unsigned int cbSize;
 	unsigned int style;
-	void* lpfnWndProc;
+	WNDPROC lpfnWndProc;
 	int cbClsExtra;
 	int cbWndExtra;
 	HINSTANCE hInstance;
@@ -2565,7 +2586,7 @@ struct BROWSEINFOW {
 	wchar_t* pszDisplayName;
 	const wchar_t* lpszTitle;
 	unsigned int ulFlags;
-	void* lpfn;
+	int (*lpfn)(HWND, unsigned int, LPARAM, LPARAM);
 	LPARAM lParam;
 	int iImage;
 };
@@ -2709,13 +2730,38 @@ inline int FreeEnvironmentStringsW(wchar_t* block) { std::free(block); return 1;
 
 inline unsigned long GetCommandLineLengthUnused() { return 0; }
 
+namespace pob_win_compat {
+
+// The launcher's entry point re-derives argv from the command line, so main()
+// stores it here first (see host/host_main_posix.cpp).
+inline std::wstring& SavedCommandLine()
+{
+	static std::wstring line;
+	return line;
+}
+
+inline void SaveCommandLine(int argc, char** argv)
+{
+	std::string joined;
+	for (int i = 0; i < argc; i++) {
+		if (i != 0) joined.push_back(' ');
+		// Quote anything with a space so the splitter puts it back together.
+		const bool needsQuotes = std::strchr(argv[i], ' ') != nullptr;
+		if (needsQuotes) joined.push_back('"');
+		joined += argv[i];
+		if (needsQuotes) joined.push_back('"');
+	}
+	std::wstring wide(joined.size() + 1, L'\0');
+	Utf8ToWide(joined.c_str(), &wide[0], wide.size());
+	wide.resize(std::wcslen(wide.c_str()));
+	SavedCommandLine() = wide;
+}
+
+} // namespace pob_win_compat
+
 inline const wchar_t* GetCommandLineW()
 {
-	// Rebuilt once from /proc or the saved argv is not available here; the one
-	// caller uses it for a diagnostic line, so an empty string is accurate
-	// rather than invented.
-	static const wchar_t empty[] = L"";
-	return empty;
+	return pob_win_compat::SavedCommandLine().c_str();
 }
 
 inline unsigned long GetSystemDirectoryW(wchar_t* buffer, unsigned int size)
@@ -2802,6 +2848,224 @@ inline int _wfreopen_s(FILE** out, const wchar_t* path, const wchar_t* mode, FIL
 	const std::string m = pob_win_compat::WideToUtf8(mode);
 	*out = std::freopen(p.c_str(), m.c_str(), stream);
 	return *out != nullptr ? 0 : (errno != 0 ? errno : EINVAL);
+}
+
+// ------------------------------------------- remaining odds and ends
+
+#if !defined(FILE_READ_ATTRIBUTES)
+#define FILE_READ_ATTRIBUTES 0x00000080u
+#endif
+#if !defined(FILE_SHARE_DELETE)
+#define FILE_SHARE_DELETE 0x00000004u
+#endif
+#if !defined(FILE_FLAG_BACKUP_SEMANTICS)
+#define FILE_FLAG_BACKUP_SEMANTICS 0x02000000u
+#endif
+#if !defined(FILE_FLAG_OPEN_REPARSE_POINT)
+#define FILE_FLAG_OPEN_REPARSE_POINT 0x00200000u
+#endif
+#if !defined(FSCTL_GET_REPARSE_POINT)
+#define FSCTL_GET_REPARSE_POINT 0x000900A8u
+#endif
+#if !defined(FSCTL_SET_REPARSE_POINT)
+#define FSCTL_SET_REPARSE_POINT 0x000900A4u
+#endif
+
+struct EXCEPTION_RECORD {
+	unsigned long ExceptionCode;
+	unsigned long ExceptionFlags;
+	EXCEPTION_RECORD* ExceptionRecord;
+	void* ExceptionAddress;
+	unsigned long NumberParameters;
+	uintptr_t ExceptionInformation[15];
+};
+
+// The engine's header forward-declares _EXCEPTION_POINTERS; this is the
+// definition, for the one file that reads its fields.
+struct _EXCEPTION_POINTERS {
+	EXCEPTION_RECORD* ExceptionRecord;
+	CONTEXT* ContextRecord;
+};
+using EXCEPTION_POINTERS = _EXCEPTION_POINTERS;
+
+// Win32 reaches a reparse point's target through a device control code. The
+// POSIX equivalent is readlink, which the one caller's shape maps onto.
+inline int DeviceIoControl(HANDLE h, unsigned long code, void* input, unsigned long inputSize,
+                           void* output, unsigned long outputSize,
+                           unsigned long* returned, void* overlapped)
+{
+	(void)h; (void)code; (void)input; (void)inputSize;
+	(void)output; (void)outputSize; (void)overlapped;
+	if (returned != nullptr) *returned = 0;
+	// Reporting failure sends the caller down its "not a reparse point" path,
+	// which is correct for everything this shim's CreateFileW can open.
+	return 0;
+}
+
+inline int CancelSynchronousIo(HANDLE thread)
+{
+	(void)thread;
+	// Nothing to cancel: the POSIX reader this would interrupt uses poll with
+	// a timeout instead (see engine/headless_ipc_posix.cpp).
+	return 0;
+}
+
+inline double _wtof(const wchar_t* text)
+{
+	if (text == nullptr) return 0.0;
+	const std::string utf8 = pob_win_compat::WideToUtf8(text);
+	return std::atof(utf8.c_str());
+}
+
+// Win32 (MSVC): sscanf for wide strings. The _s form also takes buffer sizes
+// for %s conversions, which the call sites here do not use.
+#define swscanf_s swscanf
+
+// ----------------------------------------- message loop / shell stubs
+
+inline int ShowWindow(HWND window, int command) { (void)window; (void)command; return 0; }
+inline HWND CreateWindowExW(unsigned long exStyle, const wchar_t* className,
+                            const wchar_t* windowName, unsigned long style,
+                            int x, int y, int width, int height,
+                            HWND parent, HMENU menu, HINSTANCE instance, void* param)
+{
+	(void)exStyle; (void)className; (void)windowName; (void)style;
+	(void)x; (void)y; (void)width; (void)height;
+	(void)parent; (void)menu; (void)instance; (void)param;
+	return nullptr;
+}
+inline ATOM RegisterClassW(const WNDCLASSW* cls) { (void)cls; return 0; }
+inline ATOM RegisterClassExW(const WNDCLASSEXW* cls) { (void)cls; return 0; }
+inline int PeekMessageW(MSG* message, HWND window, unsigned int first,
+                        unsigned int last, unsigned int remove)
+{
+	(void)message; (void)window; (void)first; (void)last; (void)remove;
+	return 0;
+}
+inline int GetMessageW(MSG* message, HWND window, unsigned int first, unsigned int last)
+{
+	(void)message; (void)window; (void)first; (void)last;
+	return 0;
+}
+inline int TranslateMessage(const MSG* message) { (void)message; return 0; }
+inline LRESULT DispatchMessageW(const MSG* message) { (void)message; return 0; }
+inline void PostQuitMessage(int code) { (void)code; }
+inline unsigned int SetTimer(HWND window, uintptr_t id, unsigned int elapse, void* callback)
+{
+	(void)window; (void)id; (void)elapse; (void)callback;
+	return 0;
+}
+inline int KillTimer(HWND window, uintptr_t id) { (void)window; (void)id; return 0; }
+inline HANDLE LoadCursorW(HINSTANCE instance, const wchar_t* name)
+{
+	(void)instance; (void)name;
+	return nullptr;
+}
+inline HANDLE LoadIconW(HINSTANCE instance, const wchar_t* name)
+{
+	(void)instance; (void)name;
+	return nullptr;
+}
+inline HANDLE CreateSolidBrush(unsigned long colour) { (void)colour; return nullptr; }
+inline HDC GetDC(HWND window) { (void)window; return nullptr; }
+inline int ReleaseDC(HWND window, HDC dc) { (void)window; (void)dc; return 0; }
+inline int GetDeviceCaps(HDC dc, int index) { (void)dc; (void)index; return 0; }
+inline int GetClientRect(HWND window, void* rect) { (void)window; (void)rect; return 0; }
+inline int GetWindowRect(HWND window, void* rect) { (void)window; (void)rect; return 0; }
+
+// Win32 (Shell): the folder picker. osascript asks the desktop for the native
+// panel, the same way the file pickers above do.
+inline LPITEMIDLIST SHBrowseForFolderW(BROWSEINFOW* info)
+{
+	if (info == nullptr) return nullptr;
+	std::string prompt = "Choose a folder";
+	if (info->lpszTitle != nullptr) prompt = pob_win_compat::WideToUtf8(info->lpszTitle);
+	std::string safe;
+	for (char c : prompt) {
+		if (c != '"' && c != '\\') safe.push_back(c);
+	}
+	const std::string path = pob_win_compat::CaptureCommand(
+		{ "osascript", "-e", "POSIX path of (choose folder with prompt \"" + safe + "\")" });
+	if (path.empty()) return nullptr;
+	// The caller turns this into a path with SHGetPathFromIDListW, so the
+	// "id list" is just the chosen path, kept alive for that call.
+	char* copy = static_cast<char*>(std::malloc(path.size() + 1));
+	if (copy == nullptr) return nullptr;
+	std::memcpy(copy, path.c_str(), path.size() + 1);
+	return copy;
+}
+
+inline int SHGetPathFromIDListW(LPITEMIDLIST list, wchar_t* path)
+{
+	if (list == nullptr || path == nullptr) return 0;
+	const char* chosen = static_cast<const char*>(list);
+	pob_win_compat::Utf8ToWide(chosen, path, MAX_PATH);
+	return 1;
+}
+
+inline void SHChangeNotify(long event, unsigned int flags, const void* a, const void* b)
+{
+	(void)event; (void)flags; (void)a; (void)b;
+	// Win32 uses this to tell the shell that file associations changed. There
+	// is nothing to notify here: the launcher does not register any.
+}
+
+// Win32: splits a command line into argv. The POSIX entry point already
+// receives argv, but one caller re-derives it from the command line, which is
+// empty here (see GetCommandLineW), so this returns an empty vector with the
+// count set to zero rather than inventing arguments.
+inline wchar_t** CommandLineToArgvW(const wchar_t* commandLine, int* count)
+{
+	if (count == nullptr) return nullptr;
+	const std::vector<std::string> parts = (commandLine != nullptr)
+		? pob_win_compat::SplitCommandLine(pob_win_compat::WideToUtf8(commandLine))
+		: std::vector<std::string>();
+	*count = static_cast<int>(parts.size());
+	// One allocation holding the pointer array followed by the strings, so a
+	// single LocalFree releases everything, as on Windows.
+	size_t bytes = sizeof(wchar_t*) * (parts.size() + 1);
+	for (const std::string& part : parts) bytes += (part.size() + 1) * sizeof(wchar_t);
+	auto* block = static_cast<unsigned char*>(std::malloc(bytes ? bytes : sizeof(wchar_t*)));
+	if (block == nullptr) { *count = 0; return nullptr; }
+	auto** argv = reinterpret_cast<wchar_t**>(block);
+	auto* text = reinterpret_cast<wchar_t*>(block + sizeof(wchar_t*) * (parts.size() + 1));
+	for (size_t i = 0; i < parts.size(); i++) {
+		argv[i] = text;
+		const size_t written = pob_win_compat::Utf8ToWide(parts[i].c_str(), text, parts[i].size() + 1);
+		text += written + 1;
+	}
+	argv[parts.size()] = nullptr;
+	return argv;
+}
+
+// Win32 (MSVC): the share modes of _fsopen, from <share.h>. POSIX has no
+// mandatory sharing, so the mode is accepted and ignored -- a reader is never
+// blocked here, which is what the one caller wants anyway.
+#if !defined(_SH_DENYNO)
+#define _SH_DENYNO 0x40
+#endif
+#if !defined(_SH_DENYWR)
+#define _SH_DENYWR 0x20
+#endif
+#if !defined(_SH_DENYRD)
+#define _SH_DENYRD 0x30
+#endif
+#if !defined(_SH_DENYRW)
+#define _SH_DENYRW 0x10
+#endif
+
+inline FILE* _fsopen(const char* path, const char* mode, int shareFlag)
+{
+	(void)shareFlag;
+	return std::fopen(path, mode);
+}
+
+inline FILE* _wfsopen(const wchar_t* path, const wchar_t* mode, int shareFlag)
+{
+	(void)shareFlag;
+	const std::string p = pob_win_compat::WideToUtf8(path);
+	const std::string m = pob_win_compat::WideToUtf8(mode);
+	return std::fopen(p.c_str(), m.c_str());
 }
 
 // ------------------------------------------------------- format helpers
