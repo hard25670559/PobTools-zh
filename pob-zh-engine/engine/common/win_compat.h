@@ -145,6 +145,43 @@ inline void RtlCaptureContext(CONTEXT* out)
 	if (out != nullptr) *out = CONTEXT{};
 }
 
+namespace pob_win_compat {
+
+// Paths in this codebase are written with the Windows separator, because that
+// is the platform it was written for: there are over a thousand such literals.
+// Rather than rewrite them -- which would churn the Windows build for no
+// behavioural gain -- every shim that takes a path runs it through here.
+//
+// The same pass maps a module file name to this platform's: the engine and the
+// Lua modules are named "<name>.dll" throughout, and are built here as
+// "lib<name>.dylib". The callers that check whether the engine is present, or
+// hand its name to the loader, therefore keep working unchanged.
+inline std::string NormalizePath(std::string path)
+{
+	for (char& c : path) {
+		if (c == '\\') c = '/';
+	}
+	const std::string suffix = ".dll";
+	if (path.size() > suffix.size() &&
+	    path.compare(path.size() - suffix.size(), suffix.size(), suffix) == 0) {
+		const size_t slash = path.find_last_of('/');
+		const size_t nameAt = (slash == std::string::npos) ? 0 : slash + 1;
+		const std::string dir = path.substr(0, nameAt);
+		std::string stem = path.substr(nameAt, path.size() - nameAt - suffix.size());
+#if defined(__APPLE__)
+		const std::string platformSuffix = ".dylib";
+#else
+		const std::string platformSuffix = ".so";
+#endif
+		// Only add the lib prefix when it is not already there.
+		if (stem.compare(0, 3, "lib") != 0) stem = "lib" + stem;
+		return dir + stem + platformSuffix;
+	}
+	return path;
+}
+
+} // namespace pob_win_compat
+
 // Win32 calling-convention macros. They select a stack convention that only
 // exists on 32-bit Windows; everywhere else the platform has one convention
 // and these expand to nothing.
@@ -200,7 +237,8 @@ using LPCVOID = const void*;
 inline int fopen_s(FILE** out, const char* path, const char* mode)
 {
 	if (out == nullptr) return EINVAL;
-	*out = std::fopen(path, mode);
+	// Paths here are written with the Windows separator; see NormalizePath.
+	*out = std::fopen(pob_win_compat::NormalizePath(path).c_str(), mode);
 	if (*out == nullptr) return errno != 0 ? errno : EINVAL;
 	return 0;
 }
@@ -301,7 +339,10 @@ inline unsigned long GetEnvironmentVariableW(const wchar_t* name, wchar_t* buffe
 inline unsigned long GetFileAttributesA(const char* path)
 {
 	struct stat st = {};
-	if (path == nullptr || ::stat(path, &st) != 0) {
+	// Paths here use the Windows separator; see NormalizePath.
+	const std::string normalized =
+		(path != nullptr) ? pob_win_compat::NormalizePath(path) : std::string();
+	if (path == nullptr || ::stat(normalized.c_str(), &st) != 0) {
 		return INVALID_FILE_ATTRIBUTES;
 	}
 	return S_ISDIR(st.st_mode) ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;

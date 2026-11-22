@@ -102,6 +102,13 @@ inline std::string WideToUtf8(const wchar_t* w)
 	return out;
 }
 
+
+// The path form of WideToUtf8: use this wherever the string is a path.
+inline std::string WideToPath(const wchar_t* w)
+{
+	return NormalizePath(WideToUtf8(w));
+}
+
 inline size_t Utf8ToWide(const char* s, wchar_t* buffer, size_t size)
 {
 	if (buffer == nullptr || size == 0) return 0;
@@ -279,7 +286,7 @@ inline HANDLE CreateFileW(const wchar_t* path, unsigned long access, unsigned lo
 	if (disposition == CREATE_ALWAYS)     oflag |= O_CREAT | O_TRUNC;
 	else if (disposition == OPEN_ALWAYS)  oflag |= O_CREAT;
 
-	const std::string utf8 = pob_win_compat::WideToUtf8(path);
+	const std::string utf8 = pob_win_compat::WideToPath(path);
 	const int fd = ::open(utf8.c_str(), oflag, 0644);
 	if (fd < 0) return INVALID_HANDLE_VALUE;
 	return pob_win_compat::FdToHandle(fd);
@@ -362,7 +369,7 @@ inline int CreateDirectoryW(const wchar_t* path, void* security)
 {
 	(void)security;
 	if (path == nullptr) return 0;
-	const std::string utf8 = pob_win_compat::WideToUtf8(path);
+	const std::string utf8 = pob_win_compat::WideToPath(path);
 	return ::mkdir(utf8.c_str(), 0755) == 0 ? 1 : 0;
 }
 
@@ -370,7 +377,7 @@ inline int CreateDirectoryA(const char* path, void* security)
 {
 	(void)security;
 	if (path == nullptr) return 0;
-	return ::mkdir(path, 0755) == 0 ? 1 : 0;
+	return ::mkdir(pob_win_compat::NormalizePath(path).c_str(), 0755) == 0 ? 1 : 0;
 }
 
 // Win32: the path of the running executable, wide form.
@@ -616,7 +623,7 @@ union LARGE_INTEGER {
 inline unsigned long GetFileAttributesW(const wchar_t* path)
 {
 	if (path == nullptr) return INVALID_FILE_ATTRIBUTES;
-	const std::string utf8 = pob_win_compat::WideToUtf8(path);
+	const std::string utf8 = pob_win_compat::WideToPath(path);
 	return GetFileAttributesA(utf8.c_str());
 }
 
@@ -625,7 +632,7 @@ inline int SetFileAttributesW(const wchar_t* path, unsigned long attributes)
 	// Win32 attributes have no POSIX counterpart worth emulating -- the one
 	// use here is clearing the read-only bit, which chmod covers.
 	if (path == nullptr) return 0;
-	const std::string utf8 = pob_win_compat::WideToUtf8(path);
+	const std::string utf8 = pob_win_compat::WideToPath(path);
 	struct stat st = {};
 	if (::stat(utf8.c_str(), &st) != 0) return 0;
 	const mode_t writable = st.st_mode | S_IWUSR;
@@ -666,14 +673,14 @@ inline int QueryPerformanceFrequency(LARGE_INTEGER* out)
 inline int DeleteFileW(const wchar_t* path)
 {
 	if (path == nullptr) return 0;
-	const std::string utf8 = pob_win_compat::WideToUtf8(path);
+	const std::string utf8 = pob_win_compat::WideToPath(path);
 	return ::unlink(utf8.c_str()) == 0 ? 1 : 0;
 }
 
 inline int DeleteFileA(const char* path)
 {
 	if (path == nullptr) return 0;
-	return ::unlink(path) == 0 ? 1 : 0;
+	return ::unlink(pob_win_compat::NormalizePath(path).c_str()) == 0 ? 1 : 0;
 }
 
 // Win32: converts between the two time representations. Both directions go
@@ -777,7 +784,7 @@ inline bool FillFindData(const std::string& dirPath, const dirent* entry, WIN32_
 inline HANDLE FindFirstFileW(const wchar_t* pathWithGlob, WIN32_FIND_DATAW* out)
 {
 	if (pathWithGlob == nullptr || out == nullptr) return INVALID_HANDLE_VALUE;
-	const std::string full = pob_win_compat::WideToUtf8(pathWithGlob);
+	const std::string full = pob_win_compat::WideToPath(pathWithGlob);
 	const size_t slash = full.find_last_of("/\\");
 	const std::string dirPath = (slash == std::string::npos) ? std::string(".") : full.substr(0, slash);
 	const std::string pattern = (slash == std::string::npos) ? full : full.substr(slash + 1);
@@ -839,14 +846,14 @@ inline int FindClose(HANDLE h)
 inline int RemoveDirectoryW(const wchar_t* path)
 {
 	if (path == nullptr) return 0;
-	const std::string utf8 = pob_win_compat::WideToUtf8(path);
+	const std::string utf8 = pob_win_compat::WideToPath(path);
 	return ::rmdir(utf8.c_str()) == 0 ? 1 : 0;
 }
 
 inline int RemoveDirectoryA(const char* path)
 {
 	if (path == nullptr) return 0;
-	return ::rmdir(path) == 0 ? 1 : 0;
+	return ::rmdir(pob_win_compat::NormalizePath(path).c_str()) == 0 ? 1 : 0;
 }
 
 // Win32: the per-user temp directory, with a trailing separator. TMPDIR is the
@@ -879,8 +886,8 @@ inline unsigned long GetTempPathA(unsigned long size, char* buffer)
 inline int MoveFileExW(const wchar_t* from, const wchar_t* to, unsigned long flags)
 {
 	if (from == nullptr || to == nullptr) return 0;
-	const std::string a = pob_win_compat::WideToUtf8(from);
-	const std::string b = pob_win_compat::WideToUtf8(to);
+	const std::string a = pob_win_compat::WideToPath(from);
+	const std::string b = pob_win_compat::WideToPath(to);
 	if ((flags & MOVEFILE_REPLACE_EXISTING) == 0) {
 		struct stat st = {};
 		if (::stat(b.c_str(), &st) == 0) return 0; // target exists, no replace asked
@@ -897,8 +904,8 @@ inline int MoveFileW(const wchar_t* from, const wchar_t* to)
 inline int CopyFileW(const wchar_t* from, const wchar_t* to, int failIfExists)
 {
 	if (from == nullptr || to == nullptr) return 0;
-	const std::string a = pob_win_compat::WideToUtf8(from);
-	const std::string b = pob_win_compat::WideToUtf8(to);
+	const std::string a = pob_win_compat::WideToPath(from);
+	const std::string b = pob_win_compat::WideToPath(to);
 	if (failIfExists) {
 		struct stat st = {};
 		if (::stat(b.c_str(), &st) == 0) return 0;
@@ -935,7 +942,7 @@ inline int SHCreateDirectoryExW(void* parentWindow, const wchar_t* path, void* s
 {
 	(void)parentWindow; (void)security;
 	if (path == nullptr) return -1;
-	const std::string utf8 = pob_win_compat::WideToUtf8(path);
+	const std::string utf8 = pob_win_compat::WideToPath(path);
 	std::string sofar;
 	for (size_t i = 0; i <= utf8.size(); i++) {
 		if (i == utf8.size() || utf8[i] == '/') {
@@ -969,7 +976,7 @@ inline int GetFileAttributesExW(const wchar_t* path, int level, void* out)
 {
 	(void)level;
 	if (path == nullptr || out == nullptr) return 0;
-	const std::string utf8 = pob_win_compat::WideToUtf8(path);
+	const std::string utf8 = pob_win_compat::WideToPath(path);
 	struct stat st = {};
 	if (::stat(utf8.c_str(), &st) != 0) return 0;
 	auto* data = static_cast<WIN32_FILE_ATTRIBUTE_DATA*>(out);
@@ -1010,7 +1017,7 @@ inline unsigned long GetFullPathNameW(const wchar_t* path, unsigned long size, w
 {
 	if (filePart != nullptr) *filePart = nullptr;
 	if (path == nullptr || buffer == nullptr) return 0;
-	const std::string utf8 = pob_win_compat::WideToUtf8(path);
+	const std::string utf8 = pob_win_compat::WideToPath(path);
 	char resolved[4096] = {};
 	// realpath requires the path to exist; fall back to the input otherwise,
 	// which is what the callers here do with a path they are about to create.
@@ -1047,14 +1054,32 @@ inline int SetEnvironmentVariableW(const wchar_t* name, const wchar_t* value)
 inline int freopen_s(FILE** out, const char* path, const char* mode, FILE* stream)
 {
 	if (out == nullptr) return EINVAL;
-	*out = std::freopen(path, mode, stream);
+
+	// CONOUT$ / CONIN$ are Windows console device names, not files: a GUI
+	// process reopens its streams onto them after AttachConsole so its output
+	// appears in the parent's console. A POSIX process already has those
+	// streams, so there is nothing to reopen -- and treating the name as a
+	// file would silently redirect every diagnostic into a file called
+	// "CONOUT$", which is exactly what happened before this check existed.
+	if (path != nullptr) {
+		const bool isConsoleDevice =
+			std::strcmp(path, "CONOUT$") == 0 ||
+			std::strcmp(path, "CONIN$") == 0 ||
+			std::strcmp(path, "CONERR$") == 0;
+		if (isConsoleDevice) {
+			*out = stream;
+			return 0;
+		}
+	}
+
+	*out = std::freopen(pob_win_compat::NormalizePath(path).c_str(), mode, stream);
 	return *out != nullptr ? 0 : (errno != 0 ? errno : EINVAL);
 }
 
 inline int _wfopen_s(FILE** out, const wchar_t* path, const wchar_t* mode)
 {
 	if (out == nullptr) return EINVAL;
-	const std::string p = pob_win_compat::WideToUtf8(path);
+	const std::string p = pob_win_compat::WideToPath(path);
 	const std::string m = pob_win_compat::WideToUtf8(mode);
 	*out = std::fopen(p.c_str(), m.c_str());
 	return *out != nullptr ? 0 : (errno != 0 ? errno : EINVAL);
@@ -1062,7 +1087,7 @@ inline int _wfopen_s(FILE** out, const wchar_t* path, const wchar_t* mode)
 
 inline FILE* _wfopen(const wchar_t* path, const wchar_t* mode)
 {
-	const std::string p = pob_win_compat::WideToUtf8(path);
+	const std::string p = pob_win_compat::WideToPath(path);
 	const std::string m = pob_win_compat::WideToUtf8(mode);
 	return std::fopen(p.c_str(), m.c_str());
 }
@@ -1265,7 +1290,7 @@ inline unsigned long GetPrivateProfileStringW(const wchar_t* section, const wcha
 	if (buffer == nullptr || size == 0) return 0;
 	buffer[0] = L'\0';
 	const std::string value = (section != nullptr && key != nullptr && path != nullptr)
-		? pob_win_compat::IniGet(pob_win_compat::WideToUtf8(path),
+		? pob_win_compat::IniGet(pob_win_compat::WideToPath(path),
 		                         pob_win_compat::WideToUtf8(section),
 		                         pob_win_compat::WideToUtf8(key))
 		: std::string();
@@ -1285,7 +1310,7 @@ inline unsigned int GetPrivateProfileIntW(const wchar_t* section, const wchar_t*
 	if (section == nullptr || key == nullptr || path == nullptr) {
 		return static_cast<unsigned int>(fallback);
 	}
-	const std::string value = pob_win_compat::IniGet(pob_win_compat::WideToUtf8(path),
+	const std::string value = pob_win_compat::IniGet(pob_win_compat::WideToPath(path),
 	                                                 pob_win_compat::WideToUtf8(section),
 	                                                 pob_win_compat::WideToUtf8(key));
 	if (value.empty()) return static_cast<unsigned int>(fallback);
@@ -1298,7 +1323,7 @@ inline int WritePrivateProfileStringW(const wchar_t* section, const wchar_t* key
                                       const wchar_t* value, const wchar_t* path)
 {
 	if (section == nullptr || path == nullptr) return 0;
-	const std::string p = pob_win_compat::WideToUtf8(path);
+	const std::string p = pob_win_compat::WideToPath(path);
 	const std::string s = pob_win_compat::WideToUtf8(section);
 	if (key == nullptr) return 0; // deleting a whole section is not used here
 	const std::string k = pob_win_compat::WideToUtf8(key);
@@ -1313,7 +1338,7 @@ inline HMODULE LoadLibraryExW(const wchar_t* path, HANDLE reserved, unsigned lon
 {
 	(void)reserved; (void)flags;
 	if (path == nullptr) return nullptr;
-	const std::string utf8 = pob_win_compat::WideToUtf8(path);
+	const std::string utf8 = pob_win_compat::WideToPath(path);
 	return ::dlopen(utf8.c_str(), RTLD_LAZY);
 }
 
@@ -2656,7 +2681,7 @@ inline HANDLE GetStdHandle(unsigned long which)
 inline int GetDiskFreeSpaceExW(const wchar_t* path, ULARGE_INTEGER* freeForCaller,
                                ULARGE_INTEGER* total, ULARGE_INTEGER* totalFree)
 {
-	const std::string utf8 = (path != nullptr) ? pob_win_compat::WideToUtf8(path) : std::string("/");
+	const std::string utf8 = (path != nullptr) ? pob_win_compat::WideToPath(path) : std::string("/");
 	struct statvfs st = {};
 	if (::statvfs(utf8.c_str(), &st) != 0) return 0;
 	const unsigned long long blockSize = (st.f_frsize != 0) ? st.f_frsize : st.f_bsize;
@@ -2777,7 +2802,7 @@ inline unsigned long GetShortPathNameW(const wchar_t* longPath, wchar_t* shortPa
 	// 8.3 short paths do not exist here, and the long path is always valid
 	// where a short one would be used.
 	if (longPath == nullptr) return 0;
-	const std::string utf8 = pob_win_compat::WideToUtf8(longPath);
+	const std::string utf8 = pob_win_compat::WideToPath(longPath);
 	if (shortPath == nullptr || utf8.size() + 1 > size) {
 		return static_cast<unsigned long>(utf8.size() + 1);
 	}
@@ -2844,7 +2869,7 @@ inline int gmtime_s(struct tm* out, const time_t* when)
 inline int _wfreopen_s(FILE** out, const wchar_t* path, const wchar_t* mode, FILE* stream)
 {
 	if (out == nullptr) return EINVAL;
-	const std::string p = pob_win_compat::WideToUtf8(path);
+	const std::string p = pob_win_compat::WideToPath(path);
 	const std::string m = pob_win_compat::WideToUtf8(mode);
 	*out = std::freopen(p.c_str(), m.c_str(), stream);
 	return *out != nullptr ? 0 : (errno != 0 ? errno : EINVAL);
@@ -3063,7 +3088,7 @@ inline FILE* _fsopen(const char* path, const char* mode, int shareFlag)
 inline FILE* _wfsopen(const wchar_t* path, const wchar_t* mode, int shareFlag)
 {
 	(void)shareFlag;
-	const std::string p = pob_win_compat::WideToUtf8(path);
+	const std::string p = pob_win_compat::WideToPath(path);
 	const std::string m = pob_win_compat::WideToUtf8(mode);
 	return std::fopen(p.c_str(), m.c_str());
 }
