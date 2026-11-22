@@ -1305,8 +1305,15 @@ void r_renderer_c::PumpShaders()
 	perfPendingExample_ = name;
 }
 
+#if defined(__APPLE__)
+extern void pob_hold_apple_layer_scale(sys_IVideo* video);
+#endif
+
 void r_renderer_c::BeginFrame()
 {
+#if defined(__APPLE__)
+	pob_hold_apple_layer_scale(sys->video);
+#endif
 	ImGui_ImplOpenGL3_NewFrame();
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();

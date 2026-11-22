@@ -7,27 +7,6 @@
 
 #include <glad/gles2.h>
 
-#if defined(__APPLE__)
-// EGL's declarations are written in terms of APIENTRY, which the GL loader
-// above has already defined for its own use. Put ours aside while EGL's
-// header reads, then give it back.
-#pragma push_macro("APIENTRY")
-#pragma push_macro("APIENTRYP")
-#undef APIENTRY
-#undef APIENTRYP
-// EGL spells its calling convention KHRONOS_APIENTRY, which normally arrives
-// with KHR/khrplatform.h. The GL loader above has already taken that header's
-// include guard, so it never reaches EGL -- leaving the name undefined and
-// every EGL function typedef a syntax error. Empty is what the platform's own
-// copy defines it as here.
-#if !defined(KHRONOS_APIENTRY)
-#define KHRONOS_APIENTRY
-#endif
-#include <EGL/egl.h>
-#pragma pop_macro("APIENTRYP")
-#pragma pop_macro("APIENTRY")
-#endif
-
 #include "sys_local.h"
 #include "core.h"
 #include "../../../host/perf_log.h"
@@ -41,17 +20,17 @@
 
 #include <GLFW/glfw3.h>
 #if defined(__APPLE__)
-#define GLFW_EXPOSE_NATIVE_EGL
-#include <GLFW/glfw3native.h>
+// Declared by hand: glfw3native.h and objc/runtime.h both typedef BOOL the way
+// win_compat.h above has already spelled it.
+typedef struct objc_object* pob_id;
+typedef struct objc_selector* pob_sel;
+extern "C" void* glfwGetCocoaWindow(GLFWwindow*);
+extern "C" pob_sel sel_getUid(const char*);
+extern "C" void objc_msgSend(void);
 #endif
 #if defined(_WIN32)
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h> // glfwGetWin32Window, for the opacity subclass
-#endif
-
-#if defined(__APPLE__)
-// Defined further down, beside the window code it reports on.
-static float AppleDrawableScale(GLFWwindow* wnd);
 #endif
 
 #include <deque>
@@ -96,6 +75,10 @@ public:
 	GLFWwindow* wnd = nullptr;
 
 	void	RefreshMonitorInfo();
+
+#if defined(__APPLE__)
+	void	HoldAppleLayerScale();
+#endif
 
 	int		numMon = 0;			// Number of monitors
 	int		priMon = 0;			// Index of primary monitor
@@ -813,6 +796,11 @@ int sys_video_c::Apply(sys_vidSet_s* set)
 		glfwWindowHint(GLFW_RESIZABLE, !!(cur.flags & VID_RESIZABLE));
 		glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE); // Start hidden to not flash the user with a stock window.
 		glfwWindowHint(GLFW_MAXIMIZED, GLFW_FALSE); // Start restored in order to position the window before maximizing.
+#if defined(__APPLE__)
+		// Ask for a framebuffer measured in points; HoldAppleLayerScale
+		// keeps the layer it is shown through at the matching density.
+		glfwWindowHint(GLFW_SCALE_FRAMEBUFFER, GLFW_FALSE);
+#endif
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
 		glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_EGL_CONTEXT_API);
 		glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -999,6 +987,11 @@ int sys_video_c::Apply(sys_vidSet_s* set)
 		if (!!(cur.flags & VID_MAXIMIZE)) {
 			glfwMaximizeWindow(wnd);
 		}
+#if defined(__APPLE__)
+		// Before the window is on screen, so the first frame drawn is already
+		// at the right density and there is nothing to see jump.
+		HoldAppleLayerScale();
+#endif
 		glfwShowWindow(wnd);
 
 		// Clear early to avoid flash
@@ -1008,19 +1001,15 @@ int sys_video_c::Apply(sys_vidSet_s* set)
 	}
 
 	glfwGetFramebufferSize(wnd, &vid.fbSize[0], &vid.fbSize[1]);
-#if defined(__APPLE__)
-	{
-		const float drawScale = AppleDrawableScale(wnd);
-		vid.fbSize[0] = (int)((float)vid.fbSize[0] * drawScale);
-		vid.fbSize[1] = (int)((float)vid.fbSize[1] * drawScale);
-	}
-#endif
 	glfwGetWindowSize(wnd, &vid.size[0], &vid.size[1]);
 	if (!ignoreDpiScale) {
 		glfwGetWindowContentScale(wnd, &sys->video->vid.dpiScale, nullptr);
 	}
 
 	initialised = true;
+#if defined(__APPLE__)
+	HoldAppleLayerScale();
+#endif
 	return 0;
 }
 
@@ -1038,27 +1027,53 @@ bool sys_video_c::IsActive()
 }
 
 #if defined(__APPLE__)
-// How much bigger the surface ANGLE really draws into is than the framebuffer
-// GLFW reports. Normally 1. They differ on a Mac with displays of different
-// pixel densities: ANGLE fixes its Metal layer's scale to the display the
-// window was born on, while GLFW reports the one it is on now. Drawing with
-// GLFW's numbers then fills a corner of a surface twice the size.
+// Keep what POB draws in step with the layer it is shown through.
 //
-// The launcher carries the same correction for its own window; this one is the
-// engine's, where the whole of POB is drawn.
-static float AppleDrawableScale(GLFWwindow* wnd)
+// ANGLE sizes its surface from the window, in points, but the layer that
+// surface reaches the screen through carries a density of its own -- the one
+// the display it was made on wanted. Where the two disagree the surface is
+// shown at a fraction of the window and POB sits in a corner of it, which is
+// what happens when the window is carried to a display of another density.
+//
+// Asking for one pixel per point settles it on most displays. A display that
+// insists on its own density hands it straight back, so whatever the layer
+// ends up at is what POB is told to draw at. Checked every frame: the window
+// can be carried between displays at any time and GLFW raises no event for it.
+void sys_video_c::HoldAppleLayerScale()
 {
-	int fbW = 0, fbH = 0;
-	glfwGetFramebufferSize(wnd, &fbW, &fbH);
-	if (fbW <= 0 || fbH <= 0) return 1.0f;
-	EGLDisplay dpy = glfwGetEGLDisplay();
-	EGLSurface surf = glfwGetEGLSurface(wnd);
-	if (dpy == EGL_NO_DISPLAY || surf == EGL_NO_SURFACE) return 1.0f;
-	EGLint surfW = 0;
-	if (eglQuerySurface(dpy, surf, EGL_WIDTH, &surfW) != EGL_TRUE || surfW <= 0) return 1.0f;
-	const float ratio = (float)surfW / (float)fbW;
-	if (!(ratio > 0.125f && ratio < 8.0f)) return 1.0f;
-	return ratio;
+	if (!wnd) return;
+	pob_id window = (pob_id)glfwGetCocoaWindow(wnd);
+	if (!window) return;
+	pob_id view = ((pob_id(*)(pob_id, pob_sel))objc_msgSend)(window, sel_getUid("contentView"));
+	if (!view) return;
+	pob_id layer = ((pob_id(*)(pob_id, pob_sel))objc_msgSend)(view, sel_getUid("layer"));
+	if (!layer) return;
+	const double have = ((double(*)(pob_id, pob_sel))objc_msgSend)(layer, sel_getUid("contentsScale"));
+	if (have < 0.99 || have > 1.01) {
+		((void(*)(pob_id, pob_sel, double))objc_msgSend)(layer, sel_getUid("setContentsScale:"), 1.0);
+		pob_id subs = ((pob_id(*)(pob_id, pob_sel))objc_msgSend)(layer, sel_getUid("sublayers"));
+		const long count = subs ? ((long(*)(pob_id, pob_sel))objc_msgSend)(subs, sel_getUid("count")) : 0;
+		for (long i = 0; i < count; ++i) {
+			pob_id sub = ((pob_id(*)(pob_id, pob_sel, long))objc_msgSend)(subs, sel_getUid("objectAtIndex:"), i);
+			if (sub) ((void(*)(pob_id, pob_sel, double))objc_msgSend)(sub, sel_getUid("setContentsScale:"), 1.0);
+		}
+	}
+	// Some displays refuse it and hand the layer their own density back. Draw
+	// at whatever it ends up being, so the surface still covers the window.
+	const double now = ((double(*)(pob_id, pob_sel))objc_msgSend)(layer, sel_getUid("contentsScale"));
+	if (!(now > 0.125 && now < 8.0)) return;
+	if (vid.size[0] <= 0 || vid.size[1] <= 0) return;
+	vid.fbSize[0] = (int)(vid.size[0] * now);
+	vid.fbSize[1] = (int)(vid.size[1] * now);
+	if (!ignoreDpiScale) {
+		vid.dpiScale = (float)now;
+	}
+}
+
+// Reached from the renderer at the top of each frame.
+void pob_hold_apple_layer_scale(sys_IVideo* video)
+{
+	if (video) static_cast<sys_video_c*>(video)->HoldAppleLayerScale();
 }
 #endif
 
@@ -1066,11 +1081,6 @@ void sys_video_c::FramebufferSizeChanged(int width, int height)
 {
 	// Avoid persisting an invalid window size from being minimized.
 	if (!glfwGetWindowAttrib(wnd, GLFW_ICONIFIED)) {
-#if defined(__APPLE__)
-		const float drawScale = AppleDrawableScale(wnd);
-		width = (int)((float)width * drawScale);
-		height = (int)((float)height * drawScale);
-#endif
 		vid.fbSize[0] = width;
 		vid.fbSize[1] = height;
 	}
