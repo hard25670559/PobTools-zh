@@ -1047,6 +1047,13 @@ static int ClampOpacityThunk(int v, int /*fallback*/) { return ClampWindowOpacit
 LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const std::wstring& exeDir,
                             AppUpdater* appUpd)
 {
+#if defined(__APPLE__)
+	// ANGLE picks a rendering backend per platform; on macOS that is Metal,
+	// and the choice has to be made before glfwInit. The hints after this
+	// are the same on every platform -- which is the point of going through
+	// ANGLE rather than each platform's own GL.
+	glfwInitHint(GLFW_ANGLE_PLATFORM_TYPE, GLFW_ANGLE_PLATFORM_TYPE_METAL);
+#endif
 	if (!glfwInit()) {
 		MessageBoxW(nullptr, L"無法初始化 GLFW，啟動器介面無法顯示。", L"PobTools", MB_ICONERROR | MB_OK);
 		return LauncherResult::Quit;
@@ -4313,6 +4320,9 @@ int RunFontAtlasSelftest(const std::wstring& exeDir)
 	{
 		int realMax = 0;
 		float realScale = 1.0f;
+#if defined(__APPLE__)
+		glfwInitHint(GLFW_ANGLE_PLATFORM_TYPE, GLFW_ANGLE_PLATFORM_TYPE_METAL);
+#endif
 		if (glfwInit()) {
 			glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
 			glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_EGL_CONTEXT_API);

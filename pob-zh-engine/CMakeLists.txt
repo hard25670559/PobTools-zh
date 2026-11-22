@@ -680,6 +680,50 @@ if (WIN32 OR APPLE)
     endif ()
     set_target_properties(pob-zh PROPERTIES OUTPUT_NAME "pob-zh")
     install(TARGETS pob-zh RUNTIME DESTINATION ".")
+    if (APPLE)
+        # ANGLE is the one dependency built as a shared library (see
+        # vcpkg-triplets/arm64-osx-pobtools.cmake for why), so it has to travel
+        # with the executable. On Windows $<TARGET_RUNTIME_DLLS> does this; that
+        # generator expression is empty here, so the files are named directly.
+        #
+        # They sit beside the executable because that is what the rpath says,
+        # and because GLFW's EGL backend loads them by name at runtime.
+        file(GLOB POBTOOLS_ANGLE_LIBS
+             "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/lib/*EGL*.dylib"
+             "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/lib/*GLESv2*.dylib")
+        if (POBTOOLS_ANGLE_LIBS)
+            install(FILES ${POBTOOLS_ANGLE_LIBS} DESTINATION ".")
+            # Two names are needed for the same files. The executable links
+            # against them under vcpkg's names (liblibEGL_angle.dylib), while
+            # GLFW's EGL backend loads them at runtime by the platform's
+            # standard names -- src/egl_context.c asks dlopen for exactly
+            # "libEGL.dylib" and "libGLESv2.dylib". Symlinks satisfy both
+            # without shipping the libraries twice.
+            install(CODE "
+                foreach(pair \"libEGL.dylib;EGL\" \"libGLESv2.dylib;GLESv2\")
+                    list(GET pair 0 link_name)
+                    list(GET pair 1 token)
+                    file(GLOB real \"\${CMAKE_INSTALL_PREFIX}/*\${token}*.dylib\")
+                    list(FILTER real EXCLUDE REGEX \"/\${link_name}$\")
+                    if(real)
+                        list(GET real 0 target)
+                        get_filename_component(target_name \"\${target}\" NAME)
+                        execute_process(COMMAND \${CMAKE_COMMAND} -E create_symlink
+                                        \"\${target_name}\" \"\${CMAKE_INSTALL_PREFIX}/\${link_name}\")
+                        message(STATUS \"ANGLE: \${link_name} -> \${target_name}\")
+                    endif()
+                endforeach()
+            ")
+        else ()
+            message(WARNING
+                "pob-zh: no ANGLE dylib found under ${VCPKG_TARGET_TRIPLET}. "
+                "Configure with -DVCPKG_TARGET_TRIPLET=arm64-osx-pobtools "
+                "-DVCPKG_HOST_TRIPLET=arm64-osx-pobtools and "
+                "-DVCPKG_OVERLAY_TRIPLETS=<repo>/pob-zh-engine/vcpkg-triplets, "
+                "or the launcher will fail to create its window.")
+        endif ()
+    endif ()
+
     if (APPLE AND NOT POBTOOLS_NO_BUNDLE)
         # Contents/Info.plist, one level up from Contents/MacOS.
         set(POBTOOLS_VERSION "${PROJECT_VERSION}")
