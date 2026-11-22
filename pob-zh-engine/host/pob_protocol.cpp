@@ -650,6 +650,7 @@ int RunPobProtocolSelfTest(const std::wstring& exeDir)
 
 	// host.open_folder (new interface): only the POB install and what is inside it
 	{
+#if defined(_WIN32)
 		const wchar_t* pob = L"C:\\Games\\Path of Building\\";
 		struct Case { const wchar_t* path; bool allow; const char* name; };
 		const Case cases[] = {
@@ -662,9 +663,36 @@ int RunPobProtocolSelfTest(const std::wstring& exeDir)
 			{ L"C:\\Windows", false, "open_folder 拒絕安裝資料夾以外的路徑" },
 			{ L"", false, "open_folder 拒絕空路徑" },
 		};
+#else
+		// The same cases in this platform's path form. Keeping the Windows
+		// literals here would make every "allow" case fail on format alone,
+		// and every "reject" case pass for the wrong reason -- verifying
+		// nothing about the containment logic under test.
+		const wchar_t* pob = L"/Users/test/Games/Path of Building/";
+		struct Case { const wchar_t* path; bool allow; const char* name; };
+		const Case cases[] = {
+			{ L"/Users/test/Games/Path of Building/Builds", true, "open_folder 允許安裝資料夾內的子資料夾" },
+			{ L"/Users/test/Games/Path of Building/Builds/sub", true, "open_folder 允許正斜線寫法" },
+			{ L"/Users/test/Games/Path of Building", true, "open_folder 允許安裝資料夾本身(大小寫不同)" },
+			{ L"/Users/test/Games/Path of Building/../../etc", false, "open_folder 拒絕用 .. 跳出安裝資料夾" },
+			{ L"/Users/test/Games/Path of Building/Builds/../../Secret", false, "open_folder 拒絕先進再跳出" },
+			{ L"/Users/test/Games/Path of Building Evil/x", false, "open_folder 拒絕同前綴的兄弟資料夾" },
+			{ L"/etc", false, "open_folder 拒絕安裝資料夾以外的路徑" },
+			{ L"", false, "open_folder 拒絕空路徑" },
+			{ L"Builds", false, "open_folder 拒絕相對路徑" },
+			{ L"file:///etc", false, "open_folder 拒絕 URL" },
+		};
+#endif
 		for (const Case& c : cases)
 			check(c.name, ModernUiPathUnderPob(pob, c.path) == c.allow);
+#if defined(_WIN32)
 		check("open_folder 沒有 POB 資料夾時一律拒絕", !ModernUiPathUnderPob(L"", L"C:\\Windows"));
+#else
+		check("open_folder 沒有 POB 資料夾時一律拒絕", !ModernUiPathUnderPob(L"", L"/etc"));
+		check("open_folder 安裝資料夾不帶結尾分隔符也可",
+			  ModernUiPathUnderPob(L"/Users/test/Games/Path of Building",
+			                       L"/Users/test/Games/Path of Building/Builds"));
+#endif
 		check("open_folder 安裝資料夾不帶結尾反斜線也可", ModernUiPathUnderPob(L"C:\\Games\\Path of Building", L"C:\\Games\\Path of Building\\Builds")
 			&& !ModernUiPathUnderPob(L"C:\\Games\\Path of Building", L"C:\\Games\\Path of Building Evil"));
 		// relative and scheme-like input: must not be judged against the working directory

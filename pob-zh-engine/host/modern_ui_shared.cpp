@@ -95,11 +95,18 @@ bool ModernUiPathUnderPob(const std::wstring& pobDir, const std::wstring& path)
 	};
 	// Drive-absolute only ("X:\..."): relative input would be judged against the working directory, and
 	// "shell:..." / "file:..." would reach ShellExecute as a namespace name instead of a path.
+#if defined(_WIN32)
 	if (path.size() < 3 || !iswalpha(path[0]) || path[1] != L':' || (path[2] != L'\\' && path[2] != L'/')
 	    || path.find(L':', 2) != std::wstring::npos) return false;
+#else
+	// The same two guards, in this platform's terms: an absolute path starts
+	// at the root, and a colon anywhere would mean a URL scheme rather than a
+	// path -- which is what the drive check above is really excluding.
+	if (path.empty() || path[0] != L'/' || path.find(L':') != std::wstring::npos) return false;
+#endif
 	const std::wstring root = full(pobDir), p = full(path);
 	if (root.empty() || p.size() < root.size() || _wcsnicmp(p.c_str(), root.c_str(), root.size()) != 0) return false;
-	return p.size() == root.size() || p[root.size()] == L'\\';
+	return p.size() == root.size() || p[root.size()] == L'\\' || p[root.size()] == L'/';
 }
 
 bool ModernUiOpenFolder(const std::wstring& exeDir, const std::wstring& pobDir, const json& params)

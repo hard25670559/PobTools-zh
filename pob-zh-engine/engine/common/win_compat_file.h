@@ -35,6 +35,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <fnmatch.h>
+#include <filesystem>
 #include <string>
 #include <vector>
 #include <sys/resource.h>
@@ -1017,12 +1018,27 @@ inline unsigned long GetFullPathNameW(const wchar_t* path, unsigned long size, w
 {
 	if (filePart != nullptr) *filePart = nullptr;
 	if (path == nullptr || buffer == nullptr) return 0;
-	const std::string utf8 = pob_win_compat::WideToPath(path);
-	char resolved[4096] = {};
-	// realpath requires the path to exist; fall back to the input otherwise,
-	// which is what the callers here do with a path they are about to create.
-	const char* full = ::realpath(utf8.c_str(), resolved) ? resolved : utf8.c_str();
-	return static_cast<unsigned long>(pob_win_compat::Utf8ToWide(full, buffer, size));
+
+	// Win32 resolves this LEXICALLY: it collapses "." and ".." and does not
+	// require the path to exist. Callers depend on both halves of that -- the
+	// containment check in modern_ui_shared.cpp resolves ".." precisely so a
+	// prefix compare cannot be walked out of, and it runs against folders that
+	// may not have been created yet.
+	//
+	// realpath would be the obvious counterpart and is the wrong one: it fails
+	// on a missing path, which would leave ".." in place and defeat that check.
+	// filesystem::path::lexically_normal does what Win32 does.
+	std::filesystem::path p(pob_win_compat::NormalizePath(pob_win_compat::WideToUtf8(path)));
+	if (p.is_relative()) {
+		std::error_code ec;
+		const std::filesystem::path cwd = std::filesystem::current_path(ec);
+		if (!ec) p = cwd / p;
+	}
+	const std::string full = p.lexically_normal().string();
+	if (full.size() + 1 > size) {
+		return static_cast<unsigned long>(full.size() + 1);
+	}
+	return static_cast<unsigned long>(pob_win_compat::Utf8ToWide(full.c_str(), buffer, size));
 }
 
 inline unsigned long GetCurrentDirectoryW(unsigned long size, wchar_t* buffer)
