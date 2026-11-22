@@ -14,7 +14,10 @@
     "pkgconf",
     "re2",
     "sol2",
-    "webview2",
+    {
+      "name": "webview2",
+      "platform": "windows"
+    },
     "zlib",
     "zstd"
   ]
