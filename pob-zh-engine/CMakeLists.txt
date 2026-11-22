@@ -65,7 +65,6 @@ set(SIMPLEGRAPHIC_SOURCES
     "win/entry.cpp"
     # Headless mode: stdio JSON transport + the Draw* stubs and bridge dispatch
     # that let POB's Lua run with no window for the new UI (host --modern-ui).
-    "engine/headless_ipc.cpp"
     "engine/headless_ipc.h"
     "engine/headless_bridge.cpp"
     "engine/headless_bridge.h"
@@ -110,14 +109,18 @@ if (APPLE)
     )
 endif()
 
+# APPEND, not set: a plain set() here would discard the APPLE block above,
+# which is why sys_macos.mm was never actually compiled.
 if (WIN32)
-    set (SIMPLEGRAPHIC_PLATFORM_SOURCES
+    list (APPEND SIMPLEGRAPHIC_PLATFORM_SOURCES
         "engine/system/win/sys_console.cpp"
+        "engine/headless_ipc.cpp"
         "SimpleGraphic.rc"
     )
 else()
-    set (SIMPLEGRAPHIC_PLATFORM_SOURCES
+    list (APPEND SIMPLEGRAPHIC_PLATFORM_SOURCES
         "engine/system/win/sys_console_unix.cpp"
+        "engine/headless_ipc_posix.cpp"
     )
 endif()
 
@@ -267,6 +270,14 @@ if (APPLE)
     )
 endif ()
 
+# zstd: Windows builds link the shared target; elsewhere vcpkg builds zstd
+# static only, where the generic interface target is the portable choice.
+if (WIN32)
+    set(ZSTD_LINK_TARGET zstd::libzstd_shared)
+else ()
+    set(ZSTD_LINK_TARGET zstd::libzstd)
+endif ()
+
 target_link_libraries(SimpleGraphic
     PRIVATE
     unofficial::angle::libEGL
@@ -285,7 +296,7 @@ target_link_libraries(SimpleGraphic
     Threads::Threads
     WebP::webpdecoder
     ZLIB::ZLIB
-    zstd::libzstd_shared
+    ${ZSTD_LINK_TARGET}
 )
 
 install(FILES $<TARGET_RUNTIME_DLLS:SimpleGraphic> DESTINATION "engine")
@@ -687,10 +698,14 @@ install(FILES $<TARGET_RUNTIME_DLLS:lcurl> DESTINATION "engine")
 
 add_library(lua-utf8 SHARED libs/luautf8/lutf8lib.c)
 
-target_compile_definitions(lua-utf8
-    PRIVATE
-    LUA_BUILD_AS_DLL
-)
+# LUA_BUILD_AS_DLL switches lua.h to __declspec export/import, which only
+# exists on Windows; elsewhere the default visibility is already correct.
+if (WIN32)
+    target_compile_definitions(lua-utf8
+        PRIVATE
+        LUA_BUILD_AS_DLL
+    )
+endif ()
 
 target_include_directories(lua-utf8
     PRIVATE
@@ -719,8 +734,14 @@ add_library(luasocket SHARED
    "libs/luasocket/src/tcp.c"
    "libs/luasocket/src/timeout.c"
    "libs/luasocket/src/udp.c"
-   "libs/luasocket/src/wsocket.c"
 )
+
+# luasocket ships both socket backends; pick the one for this platform.
+if (WIN32)
+    target_sources(luasocket PRIVATE "libs/luasocket/src/wsocket.c")
+else ()
+    target_sources(luasocket PRIVATE "libs/luasocket/src/usocket.c")
+endif ()
 
 target_include_directories(luasocket
     PRIVATE
@@ -730,9 +751,10 @@ target_include_directories(luasocket
 target_link_libraries(luasocket
     PRIVATE
     LuaJIT::LuaJIT
-    wsock32
-    ws2_32
 )
+if (WIN32)
+    target_link_libraries(luasocket PRIVATE wsock32 ws2_32)
+endif ()
 
 set_target_properties( luasocket PROPERTIES OUTPUT_NAME "socket" ) 
 install(TARGETS luasocket RUNTIME DESTINATION "engine")
