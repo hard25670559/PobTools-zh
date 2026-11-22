@@ -355,7 +355,14 @@ bool ui_subscript_c::Start()
 			lua_getfield(L, -1, "cpath");
 			std::string cpath = lua_tostring(L, -1);
 			lua_pop(L, 1);
+#if defined(_WIN32)
 			cpath = dllDir + "/?.dll;" + cpath;
+#else
+			// Same as the main state (ui_api.cpp): the modules are built here
+			// as lib<name>.dylib, and a sub-script that cannot find them fails
+			// on its own, in a thread whose only symptom is an error box.
+			cpath = dllDir + "/lib?.dylib;" + dllDir + "/?.dylib;" + cpath;
+#endif
 			lua_pushstring(L, cpath.c_str());
 			lua_setfield(L, -2, "cpath");
 		}

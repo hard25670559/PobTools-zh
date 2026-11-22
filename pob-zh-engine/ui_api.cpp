@@ -818,6 +818,14 @@ static int l_GetScreenSize(lua_State* L)
 	return 2;
 }
 
+// Newer Path of Building releases call this instead of GetScreenSize. The two
+// ask the same question of this engine -- GetScreenSize already reports the
+// VIRTUAL size -- so the new name is an alias rather than a second measurement.
+static int l_GetVirtualScreenSize(lua_State* L)
+{
+	return l_GetScreenSize(L);
+}
+
 static int l_GetScreenScale(lua_State* L)
 {
 	ui_main_c* ui = GetUIPtr(L);
@@ -2604,6 +2612,10 @@ static int l_print(lua_State* L)
 	return 0;
 }
 
+#if !defined(_WIN32)
+#include <dlfcn.h>
+#endif
+
 // Directory containing this engine module (SimpleGraphic.dll).
 std::filesystem::path EngineModuleDir()
 {
@@ -2615,6 +2627,17 @@ std::filesystem::path EngineModuleDir()
 		if (GetModuleFileNameW(mod, buf, MAX_PATH)) {
 			return std::filesystem::path(buf).parent_path();
 		}
+	}
+#else
+	// dladdr answers the same question: which shared object contains this
+	// address. Returning nothing here, as this did, costs the engine every
+	// path that is relative to itself -- the Lua C modules it ships beside
+	// (lcurl and friends) and poecharm_inject.lua, which is what puts the
+	// Chinese into POB in the first place.
+	Dl_info info{};
+	if (::dladdr(reinterpret_cast<const void*>(&EngineModuleDir), &info) != 0 &&
+	    info.dli_fname != nullptr && info.dli_fname[0] != '\0') {
+		return std::filesystem::path(info.dli_fname).parent_path();
 	}
 #endif
 	return {};
@@ -3181,7 +3204,14 @@ int ui_main_c::InitAPI(lua_State* L)
 			lua_getfield(L, -1, "cpath");
 			std::string cpath = lua_tostring(L, -1);
 			lua_pop(L, 1);
+#if defined(_WIN32)
 			cpath = dllDir + "/?.dll;" + cpath;
+#else
+			// Built here as lib<name>.dylib. Lua matches this pattern
+			// literally -- the compatibility layer's own .dll -> .dylib
+			// rewrite is for file calls and never reaches Lua's loader.
+			cpath = dllDir + "/lib?.dylib;" + dllDir + "/?.dylib;" + cpath;
+#endif
 			lua_pushstring(L, cpath.c_str());
 			lua_setfield(L, -2, "cpath");
 		}
@@ -3279,6 +3309,7 @@ int ui_main_c::InitAPI(lua_State* L)
 	// Rendering
 	ADDFUNC(RenderInit);
 	ADDFUNC(GetScreenSize);
+	ADDFUNC(GetVirtualScreenSize);
 	ADDFUNC(GetScreenScale);
 	ADDFUNC(SetClearColor);
 	ADDFUNC(SetDrawLayer);

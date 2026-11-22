@@ -393,7 +393,7 @@ index 00000000..72e9ccae
 +char* _lua_tmpnam();
 +#else
 +#define _lua_fopen(path, mode) fopen(path, mode)
-+#define _lua_getenvcopy(name) strdup(getenv(name))
++#define _lua_getenvcopy(name) ({ char const* _pob_v = getenv(name); _pob_v != NULL ? strdup(_pob_v) : NULL; })
 +#define _lua_getenvfree(name) free(name)
 +#define _lua_remove(path) remove(path)
 +#define _lua_rename(oldpath, newpath) rename(oldpath, newpath)

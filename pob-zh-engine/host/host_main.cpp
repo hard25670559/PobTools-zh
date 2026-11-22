@@ -103,7 +103,11 @@ static std::wstring launch_lua_from(std::wstring p)
 	if (p.empty()) return L"";
 	if (file_exists(p)) return p;
 	if (dir_exists(p)) {
-		if (p.back() != L'\\') p += L'\\';
+		// The platform's own separator: this path is handed to the engine,
+		// which resolves it with std::filesystem -- and that does not treat
+		// '\' as a separator outside Windows, so a backslash here turns the
+		// whole thing into one impossible file name.
+		if (p.back() != L'\\' && p.back() != L'/') p += kPathSep;
 		std::wstring lua = p + L"Launch.lua";
 		if (file_exists(lua)) return lua;
 	}

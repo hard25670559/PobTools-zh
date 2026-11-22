@@ -290,6 +290,9 @@ if (APPLE)
         PRIVATE
         ${CORE_FOUNDATION_LIBRARY}
         ${APPLICATION_SERVICES_LIBRARY}
+        # libEGL: the engine asks EGL directly how big its drawing surface
+        # really is, which is what the viewport has to match.
+        unofficial::angle::libEGL
     )
 endif ()
 

@@ -790,7 +790,9 @@ bool sys_main_c::Run(int argc, char** argv)
 	}
 #else
 	catch (std::exception& e) {
-		Error("Exception: ", e.what());
+		// %s, not a trailing space: without it what() is dropped and every
+		// exception reports itself as a blank line.
+		Error("Exception: %s", e.what());
 	}
 #endif
 
