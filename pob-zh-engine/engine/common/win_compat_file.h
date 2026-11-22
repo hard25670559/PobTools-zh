@@ -839,6 +839,9 @@ namespace pob_win_compat {
 struct FindState {
 	DIR* dir = nullptr;
 	std::string pattern;
+	// Kept so every entry, not just the first, can be described in full: the
+	// size and the timestamps need the path, not only the name.
+	std::string dirPath;
 };
 
 inline bool FillFindData(const std::string& dirPath, const dirent* entry, WIN32_FIND_DATAW* out)
@@ -881,7 +884,7 @@ inline HANDLE FindFirstFileW(const wchar_t* pathWithGlob, WIN32_FIND_DATAW* out)
 	DIR* dir = ::opendir(dirPath.empty() ? "." : dirPath.c_str());
 	if (dir == nullptr) return INVALID_HANDLE_VALUE;
 
-	auto* state = new pob_win_compat::FindState{ dir, pattern };
+	auto* state = new pob_win_compat::FindState{ dir, pattern, dirPath };
 	for (dirent* entry = ::readdir(dir); entry != nullptr; entry = ::readdir(dir)) {
 		if (::fnmatch(state->pattern.c_str(), entry->d_name, 0) != 0) continue;
 		if (pob_win_compat::FillFindData(dirPath, entry, out)) {
@@ -897,16 +900,13 @@ inline int FindNextFileW(HANDLE h, WIN32_FIND_DATAW* out)
 {
 	if (h == INVALID_HANDLE_VALUE || h == nullptr || out == nullptr) return 0;
 	auto* state = reinterpret_cast<pob_win_compat::FindState*>(h);
-	// The directory path is recoverable from the descriptor, but the entries
-	// only need their own names from here on.
+	// Described exactly as the first entry was. Filling in only the name and
+	// the directory bit here, as this once did, left the size and the
+	// timestamps at zero for every entry after the first -- a caller that
+	// prunes by age then reads them all as 1601 and deletes the lot.
 	for (dirent* entry = ::readdir(state->dir); entry != nullptr; entry = ::readdir(state->dir)) {
 		if (::fnmatch(state->pattern.c_str(), entry->d_name, 0) != 0) continue;
-		struct stat st = {};
-		out->dwFileAttributes = FILE_ATTRIBUTE_NORMAL;
-		if (::fstatat(::dirfd(state->dir), entry->d_name, &st, 0) == 0 && S_ISDIR(st.st_mode)) {
-			out->dwFileAttributes = FILE_ATTRIBUTE_DIRECTORY;
-		}
-		if (pob_win_compat::Utf8ToWide(entry->d_name, out->cFileName, MAX_PATH) > 0) return 1;
+		if (pob_win_compat::FillFindData(state->dirPath, entry, out)) return 1;
 	}
 	return 0;
 }
