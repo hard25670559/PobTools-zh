@@ -6,6 +6,7 @@
 #else
 #include "../engine/common/win_compat.h"
 #endif
+#include <filesystem>
 #include <string>
 
 // The separator paths are normalised to before they are compared, stored or
@@ -25,6 +26,22 @@ inline std::wstring native_seps(std::wstring p)
 	for (wchar_t& c : p)
 		if (c == kPathSepOther) c = kPathSep;
 	return p;
+}
+
+// A std::filesystem::path built from a path string this codebase produced.
+//
+// Those strings are Windows-shaped: they may carry '\\' separators. On POSIX
+// std::filesystem does not treat '\\' as a separator at all, so such a string
+// becomes ONE file name with backslashes inside it -- the file is created, but
+// under a name nothing else can find. Every std::fstream in this codebase has
+// to go through here rather than construct a path directly.
+inline std::filesystem::path fs_path(const std::wstring& p)
+{
+#if defined(_WIN32)
+	return std::filesystem::path(p);
+#else
+	return std::filesystem::path(pob_win_compat::WideToPath(p.c_str()));
+#endif
 }
 
 inline std::string narrow(const std::wstring& w)
