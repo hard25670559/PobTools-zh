@@ -10,7 +10,11 @@
 
 #include "editor_selftest.h"
 
+#if defined(_WIN32)
 #include <windows.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 
 #include <cstdio>
 #include <map>

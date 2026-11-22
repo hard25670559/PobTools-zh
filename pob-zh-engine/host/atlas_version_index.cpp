@@ -1,7 +1,11 @@
 #include "atlas_version_index.h"
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 #include "win_util.h"
 #include "selftest_report.h"
 

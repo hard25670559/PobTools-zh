@@ -9,12 +9,22 @@
 #include "ui_widgets.h"
 #include "ui_icons.h"
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
-#ifndef NOMINMAX
-#define NOMINMAX
+#else
+#include "../engine/common/win_compat.h"
 #endif
+#ifndef NOMINMAX
+#if defined(_WIN32)
+#define NOMINMAX
+#else
+#endif
+#endif
+#if defined(_WIN32)
 #include <windows.h>
 #include <shellapi.h>   // ShellExecuteW: open the dictionary folder
+#else
+#endif
 #include "win_util.h"
 
 #include <GLES2/gl2.h>

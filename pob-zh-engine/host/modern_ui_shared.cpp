@@ -1,8 +1,12 @@
 #include "modern_ui_shared.h"
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shellapi.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 #include "win_util.h"
 
 using json = nlohmann::json;

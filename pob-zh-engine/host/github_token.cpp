@@ -1,15 +1,22 @@
 #include "github_token.h"
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <wincrypt.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 
 #include <atomic>
 #include <cstring>
 #include <mutex>
 #include <vector>
 
+#if defined(_WIN32)
 #pragma comment(lib, "crypt32.lib")
+#else
+#endif
 
 namespace GitHubToken {
 namespace {

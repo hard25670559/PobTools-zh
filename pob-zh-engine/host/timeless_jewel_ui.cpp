@@ -17,9 +17,13 @@
 
 #include <json.hpp>
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shellapi.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 #include "win_util.h"
 
 #include <GLES2/gl2.h>

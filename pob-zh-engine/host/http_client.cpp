@@ -2,14 +2,21 @@
 #include "error_log.h"
 #include "github_token.h"
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <winhttp.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 #include "win_util.h"
 
 #include <mutex>
 
+#if defined(_WIN32)
 #pragma comment(lib, "winhttp.lib")
+#else
+#endif
 
 // Absent from older SDK headers; the value is stable (Win 8.1+ feature).
 #ifndef WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY

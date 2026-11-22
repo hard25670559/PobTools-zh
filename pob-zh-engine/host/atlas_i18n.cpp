@@ -3,8 +3,12 @@
 #include "atlas_tree_data.h"
 #include "atlas_version_index.h" // season resolution (versioned data layout)
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 #include "win_util.h"
 
 #include <json.hpp> // nlohmann::ordered_json (deps/nlohmann)

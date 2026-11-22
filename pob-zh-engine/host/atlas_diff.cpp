@@ -6,9 +6,13 @@
 
 #include <json.hpp> // nlohmann::ordered_json (selftest output validation)
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX          // keep std::min/std::max usable (windows.h defines min/max macros)
 #include <windows.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 #include "win_util.h"
 #include "selftest_report.h"
 

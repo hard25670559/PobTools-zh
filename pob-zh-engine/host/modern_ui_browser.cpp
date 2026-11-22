@@ -10,11 +10,15 @@
 #include "pob_protocol.h"
 #include "clipboard_util.h"
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
 #include <shellapi.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 #include "win_util.h"
 
 #include <json.hpp>
@@ -32,7 +36,10 @@
 #include <thread>
 #include <vector>
 
+#if defined(_WIN32)
 #pragma comment(lib, "ws2_32.lib")
+#else
+#endif
 
 using json = nlohmann::json;
 

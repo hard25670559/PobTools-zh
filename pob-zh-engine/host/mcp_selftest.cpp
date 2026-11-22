@@ -9,11 +9,18 @@
 #include "hash_sha256.h"
 #include "mcp_config.h"
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 #include <winioctl.h>
+#if defined(_WIN32)
 #include <shlobj.h>
 #include <knownfolders.h>
+#else
+#endif
 #include "win_util.h"
 
 #include <json.hpp>

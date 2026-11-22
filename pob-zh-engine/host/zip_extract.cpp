@@ -1,13 +1,20 @@
 #include "zip_extract.h"
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shlobj.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 #include "win_util.h"
 
 #include <miniz.h>
 
+#if defined(_WIN32)
 #pragma comment(lib, "shell32.lib")
+#else
+#endif
 
 // Normalized name ('/' separators) -> safe? Rejects absolute paths, drive
 // letters and any "."/".." path component.

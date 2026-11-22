@@ -1,12 +1,19 @@
 #include "hash_sha256.h"
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 #include <bcrypt.h>
 
 #include <vector>
 
+#if defined(_WIN32)
 #pragma comment(lib, "bcrypt.lib")
+#else
+#endif
 
 bool Sha256Raw(const void* data, size_t size, unsigned char out[32])
 {

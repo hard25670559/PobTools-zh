@@ -2,18 +2,25 @@
 #include "image_tex.h"
 #include "http_client.h" // HttpOpenSession: the shared proxy-aware session
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <winhttp.h>
 #include <shlobj.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 #include "win_util.h"
 
 #include <json.hpp> // nlohmann::ordered_json
 #include <cctype>
 #include <vector>
 
+#if defined(_WIN32)
 #pragma comment(lib, "winhttp.lib")
 #pragma comment(lib, "shell32.lib")
+#else
+#endif
 
 using nlohmann::ordered_json;
 

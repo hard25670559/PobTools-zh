@@ -3,14 +3,21 @@
 #include "atlas_mechanics.h"     // league-mechanic map written alongside the tree
 #include "atlas_version_index.h" // resolve the active season folder for the CLI
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shlobj.h> // SHCreateDirectoryExW (nested season folders)
+#else
+#include "../engine/common/win_compat.h"
+#endif
 #include "win_util.h"
 
 #include <json.hpp> // nlohmann::ordered_json (deps/nlohmann)
 
+#if defined(_WIN32)
 #pragma comment(lib, "shell32.lib")
+#else
+#endif
 
 #include <cmath>
 #include <cstdio>

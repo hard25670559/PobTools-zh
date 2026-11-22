@@ -299,7 +299,10 @@ target_link_libraries(SimpleGraphic
     ${ZSTD_LINK_TARGET}
 )
 
-install(FILES $<TARGET_RUNTIME_DLLS:SimpleGraphic> DESTINATION "engine")
+# TARGET_RUNTIME_DLLS is empty on non-Windows; install(FILES "") errors.
+if (WIN32)
+    install(FILES $<TARGET_RUNTIME_DLLS:SimpleGraphic> DESTINATION "engine")
+endif ()
 install(TARGETS SimpleGraphic RUNTIME DESTINATION "engine")
 
 # PoeCharm: engine-owned runtime CJK patch script, loaded by the engine into
@@ -405,9 +408,8 @@ endif ()
 #   - imgui sources are compiled into the exe (the imgui static lib is /MD)
 #   - glfw3/libGLESv2 are DELAYLOADed; wWinMain calls SetDllDirectoryW(engine)
 #     before the first glfw/GL call so they resolve from engine\
-if (WIN32)
-    add_executable(pob-zh WIN32
-        host/pob-zh.rc
+if (WIN32 OR APPLE)
+    set(POBZH_SOURCES
         host/host_main.cpp
         host/error_log.cpp
         host/error_log_selftest.cpp
@@ -532,7 +534,6 @@ if (WIN32)
         host/pob_sandbox.cpp
         # the new UI: a Win32 window hosting WebView2, forwarding lines between
         # the Svelte page (dist\ui) and the headless POB child
-        host/modern_ui_window.cpp
         # ...or, where WebView2 cannot run (Wine / CrossOver), the same page in
         # the system browser over a loopback HTTP server
         host/modern_ui_browser.cpp
@@ -566,6 +567,19 @@ if (WIN32)
         host/github_token.cpp
         ${IMGUI_SOURCES}
     )
+
+    # The WIN32 flag selects the GUI subsystem, which only Windows has; the
+    # resource script and the WebView2 window likewise exist only there.
+    if (WIN32)
+        list(APPEND POBZH_SOURCES
+            host/pob-zh.rc
+            host/modern_ui_window.cpp
+        )
+        add_executable(pob-zh WIN32 ${POBZH_SOURCES})
+    else ()
+        add_executable(pob-zh ${POBZH_SOURCES})
+    endif ()
+
     target_compile_definitions(pob-zh PRIVATE "UNICODE" "_UNICODE" "IMGUI_IMPL_OPENGL_ES2")
     # 更新來源的 repo。不設就是 app_update.cpp 裡的正式值。
     #
@@ -596,7 +610,11 @@ if (WIN32)
     endif()
     # host sources contain UTF-8 CJK string literals; force UTF-8 source parsing
     # so MSVC does not misread them under the system (Big5) code page.
-    target_compile_options(pob-zh PRIVATE "/utf-8")
+    # MSVC would otherwise read these UTF-8 CJK literals under the system
+    # (Big5) code page. clang reads UTF-8 by default and rejects the flag.
+    if (MSVC)
+        target_compile_options(pob-zh PRIVATE "/utf-8")
+    endif ()
     target_include_directories(pob-zh PRIVATE
         dep/imgui
         dep/imgui/backends
@@ -605,13 +623,21 @@ if (WIN32)
         dep/miniz
         ${CMAKE_CURRENT_SOURCE_DIR}/deps/nlohmann
     )
-    set_property(TARGET pob-zh PROPERTY
-        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-    find_package(unofficial-webview2 CONFIG REQUIRED)
+    if (MSVC)
+        set_property(TARGET pob-zh PROPERTY
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    endif ()
     # webpdecoder: the 3.30+ atlas sprite sheets are webp. Its DLL already ships
     # in engine/ for SimpleGraphic, hence delay-loaded like glfw3/libGLESv2.
-    target_link_libraries(pob-zh PRIVATE glfw unofficial::angle::libGLESv2 unofficial::webview2::webview2 WebP::webpdecoder delayimp)
-    target_link_options(pob-zh PRIVATE "/DELAYLOAD:glfw3.dll" "/DELAYLOAD:libGLESv2.dll" "/DELAYLOAD:WebView2Loader.dll" "/DELAYLOAD:libwebpdecoder.dll")
+    if (WIN32)
+        find_package(unofficial-webview2 CONFIG REQUIRED)
+        target_link_libraries(pob-zh PRIVATE glfw unofficial::angle::libGLESv2 unofficial::webview2::webview2 WebP::webpdecoder delayimp)
+        target_link_options(pob-zh PRIVATE "/DELAYLOAD:glfw3.dll" "/DELAYLOAD:libGLESv2.dll" "/DELAYLOAD:WebView2Loader.dll" "/DELAYLOAD:libwebpdecoder.dll")
+    else ()
+        # No WebView2 and no delay loading: the modern UI falls back to the
+        # system browser here, which modern_ui_browser.cpp already implements.
+        target_link_libraries(pob-zh PRIVATE glfw unofficial::angle::libGLESv2 WebP::webpdecoder)
+    endif ()
     set_target_properties(pob-zh PROPERTIES OUTPUT_NAME "pob-zh")
     install(TARGETS pob-zh RUNTIME DESTINATION ".")
     # Bundled item-name -> icon art-path map (generated from RePoE).
@@ -692,7 +718,10 @@ target_link_libraries(lcurl
 )
 
 install(TARGETS lcurl RUNTIME DESTINATION "engine")
-install(FILES $<TARGET_RUNTIME_DLLS:lcurl> DESTINATION "engine")
+# TARGET_RUNTIME_DLLS is empty on non-Windows; install(FILES "") errors.
+if (WIN32)
+    install(FILES $<TARGET_RUNTIME_DLLS:lcurl> DESTINATION "engine")
+endif ()
 
 # luautf8 module
 
@@ -717,7 +746,10 @@ target_link_libraries(lua-utf8
 )
 
 install(TARGETS lua-utf8 RUNTIME DESTINATION "engine")
-install(FILES $<TARGET_RUNTIME_DLLS:lua-utf8> DESTINATION "engine")
+# TARGET_RUNTIME_DLLS is empty on non-Windows; install(FILES "") errors.
+if (WIN32)
+    install(FILES $<TARGET_RUNTIME_DLLS:lua-utf8> DESTINATION "engine")
+endif ()
 
 # luasocket module
 
@@ -758,7 +790,10 @@ endif ()
 
 set_target_properties( luasocket PROPERTIES OUTPUT_NAME "socket" ) 
 install(TARGETS luasocket RUNTIME DESTINATION "engine")
-install(FILES $<TARGET_RUNTIME_DLLS:luasocket> DESTINATION "engine")
+# TARGET_RUNTIME_DLLS is empty on non-Windows; install(FILES "") errors.
+if (WIN32)
+    install(FILES $<TARGET_RUNTIME_DLLS:luasocket> DESTINATION "engine")
+endif ()
 
 # lzip module
 
@@ -775,7 +810,10 @@ target_link_libraries(lzip
 )
 
 install(TARGETS lzip RUNTIME DESTINATION "engine")
-install(FILES $<TARGET_RUNTIME_DLLS:lzip> DESTINATION "engine")
+# TARGET_RUNTIME_DLLS is empty on non-Windows; install(FILES "") errors.
+if (WIN32)
+    install(FILES $<TARGET_RUNTIME_DLLS:lzip> DESTINATION "engine")
+endif ()
 
 # Headless check of the engine's fallback font chain against the shipped TTFs
 # (engine/render/r_font_fallback.h). Not installed, not built by default:

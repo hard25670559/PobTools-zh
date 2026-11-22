@@ -2,15 +2,22 @@
 #include "filter_parser.h"
 #include "filter_edit_journal.h"   // ParseOnlineHeader, FilterBannerValue
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shlobj.h>      // SHGetKnownFolderPath, FOLDERID_Documents, KF_FLAG_DEFAULT
+#else
+#include "../engine/common/win_compat.h"
+#endif
 #include "win_util.h"
 
 #include <algorithm>
 
+#if defined(_WIN32)
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "ole32.lib")  // CoTaskMemFree
+#else
+#endif
 
 static bool write_file_atomic(const std::wstring& path, const std::string& data)
 {

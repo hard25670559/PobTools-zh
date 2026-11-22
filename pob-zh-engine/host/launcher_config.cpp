@@ -2,8 +2,12 @@
 #include "error_log.h"
 #include "pob_frame_cap.h"
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 #include <algorithm>
 #include <cwchar>
 #include <cwctype>

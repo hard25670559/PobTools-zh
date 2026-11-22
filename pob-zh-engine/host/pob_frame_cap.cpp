@@ -6,7 +6,7 @@
 #include <mmsystem.h>
 #pragma comment(lib, "winmm.lib")
 #else
-#include "common/win_compat.h"
+#include "../engine/common/win_compat.h"
 #endif
 
 namespace PobFrameCap {

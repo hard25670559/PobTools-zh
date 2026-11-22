@@ -16,7 +16,11 @@
 #include "paste_fixtures.h"
 #include "paste_fixtures_poe2.h"
 
+#if defined(_WIN32)
 #include <windows.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 
 #include <cstdio>
 #include <cstring>

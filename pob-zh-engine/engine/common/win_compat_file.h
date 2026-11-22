@@ -18,8 +18,9 @@
 
 #if !defined(_WIN32)
 
-// GetModuleFileNameA and the integer typedefs live there.
-#include "common/win_compat.h"
+// Included from the end of win_compat.h, which is the single entry point for
+// the whole shim: the integer typedefs and GetModuleFileNameA it provides are
+// already in scope by the time this file is read.
 
 #include <cerrno>
 #include <chrono>
@@ -551,7 +552,7 @@ inline int WideCharToMultiByte(unsigned int codePage, unsigned long flags,
 	std::string utf8;
 	if (inputLen < 0) {
 		utf8 = pob_win_compat::WideToUtf8(input);
-		utf8.push_back(' '); // -1 means the input was terminated; so is the output
+		utf8.push_back('\0'); // -1 means the input was terminated; so is the output
 	} else {
 		const std::wstring slice(input, static_cast<size_t>(inputLen));
 		utf8 = pob_win_compat::WideToUtf8(slice.c_str());
@@ -592,6 +593,39 @@ union LARGE_INTEGER {
 	struct { unsigned long LowPart; long HighPart; };
 	long long QuadPart;
 };
+
+// Win32: the attribute bits of a wide path. Same contract as the narrow form.
+inline unsigned long GetFileAttributesW(const wchar_t* path)
+{
+	if (path == nullptr) return INVALID_FILE_ATTRIBUTES;
+	const std::string utf8 = pob_win_compat::WideToUtf8(path);
+	return GetFileAttributesA(utf8.c_str());
+}
+
+inline int SetFileAttributesW(const wchar_t* path, unsigned long attributes)
+{
+	// Win32 attributes have no POSIX counterpart worth emulating -- the one
+	// use here is clearing the read-only bit, which chmod covers.
+	if (path == nullptr) return 0;
+	const std::string utf8 = pob_win_compat::WideToUtf8(path);
+	struct stat st = {};
+	if (::stat(utf8.c_str(), &st) != 0) return 0;
+	const mode_t writable = st.st_mode | S_IWUSR;
+	const mode_t readonly = st.st_mode & ~static_cast<mode_t>(S_IWUSR | S_IWGRP | S_IWOTH);
+	return ::chmod(utf8.c_str(), (attributes & 0x1u) ? readonly : writable) == 0 ? 1 : 0;
+}
+
+// Win32: the size of an open file, reported through a 64-bit out-parameter.
+inline int GetFileSizeEx(HANDLE h, LARGE_INTEGER* size)
+{
+	if (size == nullptr) return 0;
+	const int fd = pob_win_compat::HandleToFd(h);
+	if (fd < 0) return 0;
+	struct stat st = {};
+	if (::fstat(fd, &st) != 0) return 0;
+	size->QuadPart = static_cast<long long>(st.st_size);
+	return 1;
+}
 
 // Win32: a monotonic tick count and its rate. The monotonic clock reports
 // nanoseconds, so the rate is fixed and the counter needs no calibration.
@@ -751,6 +785,275 @@ inline int FindClose(HANDLE h)
 	delete state;
 	return 1;
 }
+
+// ------------------------------------------------- more file operations
+
+#if !defined(MOVEFILE_REPLACE_EXISTING)
+#define MOVEFILE_REPLACE_EXISTING 0x00000001u
+#endif
+#if !defined(MOVEFILE_WRITE_THROUGH)
+#define MOVEFILE_WRITE_THROUGH 0x00000008u
+#endif
+#if !defined(MOVEFILE_COPY_ALLOWED)
+#define MOVEFILE_COPY_ALLOWED 0x00000002u
+#endif
+
+inline int RemoveDirectoryW(const wchar_t* path)
+{
+	if (path == nullptr) return 0;
+	const std::string utf8 = pob_win_compat::WideToUtf8(path);
+	return ::rmdir(utf8.c_str()) == 0 ? 1 : 0;
+}
+
+inline int RemoveDirectoryA(const char* path)
+{
+	if (path == nullptr) return 0;
+	return ::rmdir(path) == 0 ? 1 : 0;
+}
+
+// Win32: the per-user temp directory, with a trailing separator. TMPDIR is the
+// POSIX equivalent; /tmp is the fallback when it is unset.
+inline unsigned long GetTempPathW(unsigned long size, wchar_t* buffer)
+{
+	const char* tmp = std::getenv("TMPDIR");
+	std::string path = (tmp != nullptr && tmp[0] != 0) ? tmp : "/tmp";
+	if (path.back() != '/') path.push_back('/');
+	if (buffer == nullptr || path.size() + 1 > size) {
+		return static_cast<unsigned long>(path.size() + 1);
+	}
+	return static_cast<unsigned long>(pob_win_compat::Utf8ToWide(path.c_str(), buffer, size));
+}
+
+inline unsigned long GetTempPathA(unsigned long size, char* buffer)
+{
+	const char* tmp = std::getenv("TMPDIR");
+	std::string path = (tmp != nullptr && tmp[0] != 0) ? tmp : "/tmp";
+	if (path.back() != '/') path.push_back('/');
+	if (buffer == nullptr || path.size() + 1 > size) {
+		return static_cast<unsigned long>(path.size() + 1);
+	}
+	std::memcpy(buffer, path.c_str(), path.size() + 1);
+	return static_cast<unsigned long>(path.size());
+}
+
+// Win32: moves or renames, replacing the target when asked. rename() already
+// replaces, so the flag only decides whether an existing target is an error.
+inline int MoveFileExW(const wchar_t* from, const wchar_t* to, unsigned long flags)
+{
+	if (from == nullptr || to == nullptr) return 0;
+	const std::string a = pob_win_compat::WideToUtf8(from);
+	const std::string b = pob_win_compat::WideToUtf8(to);
+	if ((flags & MOVEFILE_REPLACE_EXISTING) == 0) {
+		struct stat st = {};
+		if (::stat(b.c_str(), &st) == 0) return 0; // target exists, no replace asked
+	}
+	return ::rename(a.c_str(), b.c_str()) == 0 ? 1 : 0;
+}
+
+inline int MoveFileW(const wchar_t* from, const wchar_t* to)
+{
+	return MoveFileExW(from, to, 0);
+}
+
+// Win32: copies a file, optionally failing when the target exists.
+inline int CopyFileW(const wchar_t* from, const wchar_t* to, int failIfExists)
+{
+	if (from == nullptr || to == nullptr) return 0;
+	const std::string a = pob_win_compat::WideToUtf8(from);
+	const std::string b = pob_win_compat::WideToUtf8(to);
+	if (failIfExists) {
+		struct stat st = {};
+		if (::stat(b.c_str(), &st) == 0) return 0;
+	}
+	const int in = ::open(a.c_str(), O_RDONLY);
+	if (in < 0) return 0;
+	struct stat src = {};
+	const mode_t mode = (::fstat(in, &src) == 0) ? (src.st_mode & 0777) : 0644;
+	const int out = ::open(b.c_str(), O_WRONLY | O_CREAT | O_TRUNC, mode);
+	if (out < 0) { ::close(in); return 0; }
+	char buf[65536];
+	bool ok = true;
+	for (;;) {
+		const ssize_t n = ::read(in, buf, sizeof(buf));
+		if (n < 0) { if (errno == EINTR) continue; ok = false; break; }
+		if (n == 0) break;
+		const char* p = buf;
+		ssize_t left = n;
+		while (left > 0) {
+			const ssize_t w = ::write(out, p, static_cast<size_t>(left));
+			if (w < 0) { if (errno == EINTR) continue; ok = false; break; }
+			p += w; left -= w;
+		}
+		if (!ok) break;
+	}
+	::close(in);
+	::close(out);
+	if (!ok) ::unlink(b.c_str());
+	return ok ? 1 : 0;
+}
+
+// Win32 (Shell): creates a directory and every missing parent.
+inline int SHCreateDirectoryExW(void* parentWindow, const wchar_t* path, void* security)
+{
+	(void)parentWindow; (void)security;
+	if (path == nullptr) return -1;
+	const std::string utf8 = pob_win_compat::WideToUtf8(path);
+	std::string sofar;
+	for (size_t i = 0; i <= utf8.size(); i++) {
+		if (i == utf8.size() || utf8[i] == '/') {
+			if (!sofar.empty() && sofar != "/") {
+				struct stat st = {};
+				if (::stat(sofar.c_str(), &st) != 0 && ::mkdir(sofar.c_str(), 0755) != 0 && errno != EEXIST) {
+					return -1;
+				}
+			}
+		}
+		if (i < utf8.size()) sofar.push_back(utf8[i]);
+	}
+	return 0; // ERROR_SUCCESS
+}
+
+// Win32: the attributes-plus-size-plus-times form of a stat.
+#if !defined(GetFileExInfoStandard)
+#define GetFileExInfoStandard 0
+#endif
+
+struct WIN32_FILE_ATTRIBUTE_DATA {
+	unsigned long dwFileAttributes;
+	FILETIME ftCreationTime;
+	FILETIME ftLastAccessTime;
+	FILETIME ftLastWriteTime;
+	unsigned long nFileSizeHigh;
+	unsigned long nFileSizeLow;
+};
+
+inline int GetFileAttributesExW(const wchar_t* path, int level, void* out)
+{
+	(void)level;
+	if (path == nullptr || out == nullptr) return 0;
+	const std::string utf8 = pob_win_compat::WideToUtf8(path);
+	struct stat st = {};
+	if (::stat(utf8.c_str(), &st) != 0) return 0;
+	auto* data = static_cast<WIN32_FILE_ATTRIBUTE_DATA*>(out);
+	data->dwFileAttributes = S_ISDIR(st.st_mode) ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
+	const unsigned long long ticks = pob_win_compat::UnixToFileTimeTicks(st.st_mtime, 0);
+	pob_win_compat::PackFileTime(ticks, &data->ftLastWriteTime);
+	pob_win_compat::PackFileTime(pob_win_compat::UnixToFileTimeTicks(st.st_atime, 0), &data->ftLastAccessTime);
+	pob_win_compat::PackFileTime(pob_win_compat::UnixToFileTimeTicks(st.st_ctime, 0), &data->ftCreationTime);
+	data->nFileSizeHigh = static_cast<unsigned long>(static_cast<unsigned long long>(st.st_size) >> 32);
+	data->nFileSizeLow = static_cast<unsigned long>(static_cast<unsigned long long>(st.st_size) & 0xFFFFFFFFULL);
+	return 1;
+}
+
+inline int GetFileTime(HANDLE h, FILETIME* creation, FILETIME* access, FILETIME* write)
+{
+	const int fd = pob_win_compat::HandleToFd(h);
+	if (fd < 0) return 0;
+	struct stat st = {};
+	if (::fstat(fd, &st) != 0) return 0;
+	if (creation != nullptr) pob_win_compat::PackFileTime(pob_win_compat::UnixToFileTimeTicks(st.st_ctime, 0), creation);
+	if (access != nullptr)   pob_win_compat::PackFileTime(pob_win_compat::UnixToFileTimeTicks(st.st_atime, 0), access);
+	if (write != nullptr)    pob_win_compat::PackFileTime(pob_win_compat::UnixToFileTimeTicks(st.st_mtime, 0), write);
+	return 1;
+}
+
+inline int SetFilePointerEx(HANDLE h, LARGE_INTEGER distance, LARGE_INTEGER* newPosition, unsigned long method)
+{
+	const int fd = pob_win_compat::HandleToFd(h);
+	if (fd < 0) return 0;
+	const int whence = (method == 1) ? SEEK_CUR : (method == 2) ? SEEK_END : SEEK_SET;
+	const off_t pos = ::lseek(fd, static_cast<off_t>(distance.QuadPart), whence);
+	if (pos == static_cast<off_t>(-1)) return 0;
+	if (newPosition != nullptr) newPosition->QuadPart = static_cast<long long>(pos);
+	return 1;
+}
+
+inline unsigned long GetFullPathNameW(const wchar_t* path, unsigned long size, wchar_t* buffer, wchar_t** filePart)
+{
+	if (filePart != nullptr) *filePart = nullptr;
+	if (path == nullptr || buffer == nullptr) return 0;
+	const std::string utf8 = pob_win_compat::WideToUtf8(path);
+	char resolved[4096] = {};
+	// realpath requires the path to exist; fall back to the input otherwise,
+	// which is what the callers here do with a path they are about to create.
+	const char* full = ::realpath(utf8.c_str(), resolved) ? resolved : utf8.c_str();
+	return static_cast<unsigned long>(pob_win_compat::Utf8ToWide(full, buffer, size));
+}
+
+inline unsigned long GetCurrentDirectoryW(unsigned long size, wchar_t* buffer)
+{
+	char cwd[4096] = {};
+	if (::getcwd(cwd, sizeof(cwd)) == nullptr) return 0;
+	if (buffer == nullptr) return static_cast<unsigned long>(std::strlen(cwd) + 1);
+	return static_cast<unsigned long>(pob_win_compat::Utf8ToWide(cwd, buffer, size));
+}
+
+inline int SetEnvironmentVariableA(const char* name, const char* value)
+{
+	if (name == nullptr) return 0;
+	if (value == nullptr) return ::unsetenv(name) == 0 ? 1 : 0;
+	return ::setenv(name, value, 1) == 0 ? 1 : 0;
+}
+
+inline int SetEnvironmentVariableW(const wchar_t* name, const wchar_t* value)
+{
+	if (name == nullptr) return 0;
+	const std::string n = pob_win_compat::WideToUtf8(name);
+	if (value == nullptr) return ::unsetenv(n.c_str()) == 0 ? 1 : 0;
+	const std::string v = pob_win_compat::WideToUtf8(value);
+	return ::setenv(n.c_str(), v.c_str(), 1) == 0 ? 1 : 0;
+}
+
+// ------------------------------------------- MSVC secure-CRT equivalents
+
+inline int freopen_s(FILE** out, const char* path, const char* mode, FILE* stream)
+{
+	if (out == nullptr) return EINVAL;
+	*out = std::freopen(path, mode, stream);
+	return *out != nullptr ? 0 : (errno != 0 ? errno : EINVAL);
+}
+
+inline int _wfopen_s(FILE** out, const wchar_t* path, const wchar_t* mode)
+{
+	if (out == nullptr) return EINVAL;
+	const std::string p = pob_win_compat::WideToUtf8(path);
+	const std::string m = pob_win_compat::WideToUtf8(mode);
+	*out = std::fopen(p.c_str(), m.c_str());
+	return *out != nullptr ? 0 : (errno != 0 ? errno : EINVAL);
+}
+
+inline FILE* _wfopen(const wchar_t* path, const wchar_t* mode)
+{
+	const std::string p = pob_win_compat::WideToUtf8(path);
+	const std::string m = pob_win_compat::WideToUtf8(mode);
+	return std::fopen(p.c_str(), m.c_str());
+}
+
+inline int _wcsicmp(const wchar_t* a, const wchar_t* b)
+{
+	// No portable wide case-insensitive compare; the callers use it on ASCII
+	// file names and keys, which this handles exactly.
+	for (; *a != 0 && *b != 0; ++a, ++b) {
+		const wchar_t ca = (*a >= L'A' && *a <= L'Z') ? *a + 32 : *a;
+		const wchar_t cb = (*b >= L'A' && *b <= L'Z') ? *b + 32 : *b;
+		if (ca != cb) return ca < cb ? -1 : 1;
+	}
+	if (*a == *b) return 0;
+	return *a == 0 ? -1 : 1;
+}
+
+// ----------------------------------------------------------- console
+
+// Win32: a GUI process can attach to the parent's console to print there.
+// A POSIX process already inherits stdout, so there is nothing to attach.
+#if !defined(ATTACH_PARENT_PROCESS)
+#define ATTACH_PARENT_PROCESS 0xFFFFFFFFu
+#endif
+
+inline int AttachConsole(unsigned long processId) { (void)processId; return 1; }
+inline int AllocConsole() { return 1; }
+inline int FreeConsole() { return 1; }
+inline int SetConsoleOutputCP(unsigned int codePage) { (void)codePage; return 1; }
 
 // ------------------------------------------------------- format helpers
 

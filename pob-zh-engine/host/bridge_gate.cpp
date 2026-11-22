@@ -1,7 +1,11 @@
 #include "bridge_gate.h"
 
 #include <json.hpp>
+#if defined(_WIN32)
 #include <windows.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 #include "win_util.h"
 #include <ctime>
 

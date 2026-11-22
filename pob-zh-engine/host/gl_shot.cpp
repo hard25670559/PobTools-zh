@@ -1,7 +1,11 @@
 #include "gl_shot.h"
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 
 #include <GLES2/gl2.h>
 

@@ -2,9 +2,13 @@
 #include "error_log.h"
 #include "modern_ui_shared.h" // selftest: the host.open_folder path rule
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shlobj.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 #include "win_util.h"
 
 #include <cstdio>
@@ -12,8 +16,11 @@
 #include <string>
 #include <vector>
 
+#if defined(_WIN32)
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "shell32.lib")
+#else
+#endif
 
 namespace PobProtocol {
 namespace {

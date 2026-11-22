@@ -33,11 +33,15 @@
 #include "warehouse_tool.h"       // CreateWarehousePanel: the revenue panel, embedded
 #include "filter_i18n.h"          // item names stored with a bound revenue record
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <commdlg.h>
 
 #pragma comment(lib, "comdlg32.lib")
+#else
+#include "../engine/common/win_compat.h"
+#endif
 
 #include <GLES2/gl2.h>
 #include <GLFW/glfw3.h>

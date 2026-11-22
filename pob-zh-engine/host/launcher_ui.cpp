@@ -38,15 +38,28 @@
 #include "tool_panel.h"
 #include "../translate/startup_trace.h"
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
-#ifndef NOMINMAX
-#define NOMINMAX   // std::min / std::max in the page layout code
+#else
+#include "../engine/common/win_compat.h"
 #endif
+#ifndef NOMINMAX
+#if defined(_WIN32)
+#define NOMINMAX   // std::min / std::max in the page layout code
+#else
+#endif
+#endif
+#if defined(_WIN32)
 #include <windows.h>
 #include <shellapi.h>
+#else
+#endif
 #include "win_util.h"
+#if defined(_WIN32)
 #include <commdlg.h>             // "add an image" on the appearance page
 #pragma comment(lib, "comdlg32.lib")
+#else
+#endif
 
 #include <GLES2/gl2.h>
 #include <GLFW/glfw3.h>

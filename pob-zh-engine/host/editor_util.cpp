@@ -1,5 +1,6 @@
 #include "editor_util.h"
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <commdlg.h>     // GetOpenFileNameW / GetSaveFileNameW
@@ -8,6 +9,9 @@
 #pragma comment(lib, "comdlg32.lib")
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "ole32.lib")
+#else
+#include "../engine/common/win_compat.h"
+#endif
 
 std::string EdNarrow(const std::wstring& w)
 {

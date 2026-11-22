@@ -20,8 +20,12 @@
 #include "ui_icons.h"
 #include "ui_icons_data.h"   // icons merged into the faces, as both real hosts do
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 
 #include <GLES2/gl2.h>
 #include <GLFW/glfw3.h>

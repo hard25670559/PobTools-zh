@@ -1,7 +1,11 @@
 ﻿#include "pob_migrate.h"
 
+#if defined(_WIN32)
 #include <windows.h>
 #include <shlobj.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 
 #include "hash_sha256.h"
 #include "http_client.h"

@@ -1,7 +1,11 @@
 #include "atlas_stat_agg.h"
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h> // AttachConsole for the selftest CLI
+#else
+#include "../engine/common/win_compat.h"
+#endif
 
 #include <cctype>
 #include <cmath>

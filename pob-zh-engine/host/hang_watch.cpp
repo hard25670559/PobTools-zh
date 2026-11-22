@@ -9,8 +9,7 @@
 #include <dbghelp.h>
 #include <tlhelp32.h>
 #else
-#include "common/win_compat.h"
-#include "common/win_compat_file.h"
+#include "../engine/common/win_compat.h"
 #include <mach-o/dyld.h>
 #endif
 

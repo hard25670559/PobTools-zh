@@ -2,13 +2,23 @@
 
 #include "window_manager.h"
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
-#ifndef NOMINMAX
-#define NOMINMAX
+#else
+#include "../engine/common/win_compat.h"
 #endif
+#ifndef NOMINMAX
+#if defined(_WIN32)
+#define NOMINMAX
+#else
+#endif
+#endif
+#if defined(_WIN32)
 #include <windows.h>
 #include <shobjidl.h>   // ITaskbarList, to drop the container's taskbar button
 #pragma comment(lib, "ole32.lib")
+#else
+#endif
 
 #include <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_WIN32

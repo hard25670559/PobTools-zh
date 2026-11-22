@@ -15,8 +15,7 @@
 #include <psapi.h>
 #pragma comment(lib, "psapi.lib")
 #else
-#include "common/win_compat.h"
-#include "common/win_compat_file.h"
+#include "../engine/common/win_compat.h"
 #endif
 
 #include <algorithm>

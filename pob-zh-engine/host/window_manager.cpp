@@ -1,8 +1,12 @@
 #include "window_manager.h"
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX // windows.h defines min/max as macros and eats std::max at the call site
 #include <windows.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 
 // For ImHashStr only: the tab-id check below must hash the way ImGui does. No context is created, nothing is drawn.
 #define IMGUI_DEFINE_MATH_OPERATORS

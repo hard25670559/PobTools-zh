@@ -3,8 +3,12 @@
 #include "atlas_tree_data.h"      // selftest: resolve node ids against a real season
 #include "atlas_version_index.h"  // VersionDir / ResolveDataDir
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 
 #include <json.hpp> // nlohmann::ordered_json (deps/nlohmann)
 

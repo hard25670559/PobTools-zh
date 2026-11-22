@@ -1,7 +1,11 @@
 // Shared tiny Win32 helpers (UTF-8/UTF-16 conversion, whole-file read/write, existence checks, exe dir) for .cpp files only.
 #pragma once
 
+#if defined(_WIN32)
 #include <windows.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 #include <string>
 
 inline std::string narrow(const std::wstring& w)
@@ -66,6 +70,6 @@ inline std::wstring exe_dir()
 	wchar_t path[MAX_PATH];
 	GetModuleFileNameW(nullptr, path, MAX_PATH);
 	std::wstring s(path);
-	size_t slash = s.find_last_of(L'\\');
+	size_t slash = s.find_last_of(L"/\\");  // both: the launcher runs on either platform
 	return slash == std::wstring::npos ? L"" : s.substr(0, slash + 1);
 }

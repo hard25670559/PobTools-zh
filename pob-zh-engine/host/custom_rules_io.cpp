@@ -2,8 +2,12 @@
 #include <algorithm>
 #include "filter_parser.h"
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 #include <fstream>
 #include <vector>
 

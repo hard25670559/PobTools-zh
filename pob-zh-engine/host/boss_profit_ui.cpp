@@ -12,8 +12,12 @@
 #include "warehouse_price_feed.h"
 #include "warehouse_state.h" // WarehouseSavedLeague
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include <imgui.h>

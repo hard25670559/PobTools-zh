@@ -10,9 +10,13 @@
 #include "sig_verify.h"
 #include "update_pubkeys.h" // 內嵌公鑰清單;自檢會把它換成臨時金鑰來驅動分支
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shlobj.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 #include "win_util.h"
 
 #include <json.hpp> // nlohmann::ordered_json (deps/nlohmann)
@@ -28,7 +32,10 @@
 
 using nlohmann::ordered_json;
 
+#if defined(_WIN32)
 #pragma comment(lib, "shell32.lib")
+#else
+#endif
 
 // ---- release source -------------------------------------------------------
 

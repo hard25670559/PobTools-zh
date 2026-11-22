@@ -1,14 +1,21 @@
 #include "sound_manager.h"
 #include "editor_util.h"   // EdBrowseForFolder
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shlobj.h>     // SHBrowseForFolderW
+#else
+#include "../engine/common/win_compat.h"
+#endif
 
 #include <string>
 
+#if defined(_WIN32)
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "ole32.lib")
+#else
+#endif
 
 static std::wstring IniPath()
 {

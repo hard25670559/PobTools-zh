@@ -3,8 +3,12 @@
 #include "launcher_config.h" // FindPoe1Dir
 #include "passive_tree_data.h" // node names for the --tj-verify dump
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 
 #include "timeless_jewel_ui.h" // trade URL assembly (selftest)
 

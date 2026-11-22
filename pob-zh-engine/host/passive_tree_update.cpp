@@ -3,15 +3,22 @@
 #include "launcher_config.h" // FindPoe1Dir
 #include "http_client.h"
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
 #include <shlobj.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 #include "win_util.h"
 
 #include <json.hpp> // nlohmann::ordered_json (deps/nlohmann)
 
+#if defined(_WIN32)
 #pragma comment(lib, "shell32.lib")
+#else
+#endif
 
 #include <algorithm>
 #include <cstdio>

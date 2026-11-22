@@ -3,8 +3,12 @@
 // 報告寫到 <exeDir>PobTools\migrate_selftest.txt(UTF-8),回傳失敗數。
 #include "pob_migrate.h"
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include "../engine/common/win_compat.h"
+#endif
 
 #include <miniz.h>
 

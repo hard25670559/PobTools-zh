@@ -151,6 +151,10 @@ using WNDPROC = void*;
 // Win32 (MSVC): the bounds-checked fopen. It reports the error through its
 // return value and the handle through an out-parameter, which is the shape the
 // call sites expect.
+// Win32 (MSVC): sscanf with the same arguments. The _s form also takes buffer
+// sizes for %s conversions, which the call sites here do not use.
+#define sscanf_s sscanf
+
 inline int fopen_s(FILE** out, const char* path, const char* mode)
 {
 	if (out == nullptr) return EINVAL;
@@ -272,5 +276,11 @@ inline unsigned long GetModuleFileNameA(void* module, char* buffer, unsigned lon
 	return static_cast<unsigned long>(n);
 #endif
 }
+
+// The file, time and event half of the shim. Kept in its own file because it
+// is bulkier, but included from here so that one include gives a caller the
+// whole thing -- a caller that got only half of it would see the narrow
+// GetFileAttributesA and not the wide form, which is a confusing way to fail.
+#include "win_compat_file.h"
 
 #endif // !_WIN32
