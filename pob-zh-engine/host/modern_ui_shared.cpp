@@ -90,7 +90,7 @@ bool ModernUiPathUnderPob(const std::wstring& pobDir, const std::wstring& path)
 		wchar_t buf[1024];
 		DWORD n = s.empty() ? 0 : GetFullPathNameW(s.c_str(), 1024, buf, nullptr);
 		std::wstring r(buf, n < 1024 ? n : 0);
-		while (!r.empty() && r.back() == L'\\') r.pop_back();
+		while (!r.empty() && (r.back() == L'\\' || r.back() == L'/')) r.pop_back();
 		return r;
 	};
 	// Drive-absolute only ("X:\..."): relative input would be judged against the working directory, and

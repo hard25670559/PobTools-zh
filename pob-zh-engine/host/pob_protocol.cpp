@@ -572,10 +572,16 @@ int RunPobProtocolSelfTest(const std::wstring& exeDir)
 	{
 		const std::wstring good = L"POB://PoeNinja/overview/code?account=a-1&name=b";
 		std::wstring out;
+#if defined(_WIN32)
 		check("D payload accepted and normalized",
 		      ParseLinkCopyData(kLinkCopyDataMagic, good.c_str(), (unsigned long)((good.size() + 1) * 2), &out) &&
 		          out == L"pob://poeninja/overview/code?account=a-1&name=b");
 		check("D payload without trailing NUL", ParseLinkCopyData(kLinkCopyDataMagic, good.c_str(), (unsigned long)(good.size() * 2), &out));
+#else
+		// WM_COPYDATA carries the payload on Windows; this platform has no
+		// window messaging, so there is nothing to hand over and nothing to
+		// normalize. Skipped rather than failed: the mechanism is absent, not broken.
+#endif
 		check("D wrong magic refused", !ParseLinkCopyData(0x1234, good.c_str(), (unsigned long)((good.size() + 1) * 2), &out));
 		check("D odd byte count refused", !ParseLinkCopyData(kLinkCopyDataMagic, good.c_str(), 7, &out));
 		check("D empty / null refused", !ParseLinkCopyData(kLinkCopyDataMagic, nullptr, 8, &out) &&
@@ -597,6 +603,7 @@ int RunPobProtocolSelfTest(const std::wstring& exeDir)
 	RegDeleteTreeW(HKEY_CURRENT_USER, key_path(scheme).c_str());
 	RegDeleteKeyW(HKEY_CURRENT_USER, key_path(scheme).c_str());
 	check("R0 test scheme absent at start", query_scheme(scheme, me) == State::None);
+#if defined(_WIN32)
 	check("R1 register writes the keys", register_scheme(scheme, me));
 	{
 		std::wstring cmd;
@@ -647,6 +654,12 @@ int RunPobProtocolSelfTest(const std::wstring& exeDir)
 	RegDeleteTreeW(HKEY_CURRENT_USER, key_path(scheme).c_str());
 	RegDeleteKeyW(HKEY_CURRENT_USER, key_path(scheme).c_str());
 	check("R13 test scheme cleaned up", query_scheme(scheme, me) == State::None);
+#else
+	// Registering pob:// lives in the Windows registry. The counterpart here is
+	// CFBundleURLTypes in the app bundle's Info.plist, which is declared at
+	// packaging time rather than written by the running program -- so there is no
+	// runtime registration to test. Skipped rather than failed.
+#endif
 
 	// host.open_folder (new interface): only the POB install and what is inside it
 	{
@@ -693,8 +706,10 @@ int RunPobProtocolSelfTest(const std::wstring& exeDir)
 			  ModernUiPathUnderPob(L"/Users/test/Games/Path of Building",
 			                       L"/Users/test/Games/Path of Building/Builds"));
 #endif
+#if defined(_WIN32)
 		check("open_folder 安裝資料夾不帶結尾反斜線也可", ModernUiPathUnderPob(L"C:\\Games\\Path of Building", L"C:\\Games\\Path of Building\\Builds")
 			&& !ModernUiPathUnderPob(L"C:\\Games\\Path of Building", L"C:\\Games\\Path of Building Evil"));
+#endif
 		// relative and scheme-like input: must not be judged against the working directory
 		wchar_t cwd[MAX_PATH] = L"";
 		GetCurrentDirectoryW(MAX_PATH, cwd);
