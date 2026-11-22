@@ -1712,6 +1712,16 @@ static void delete_old_backups(const std::wstring& exeDir, int retries)
 
 int RemoveStrayRootDlls(const std::wstring& exeDir)
 {
+#if !defined(_WIN32)
+	// Nothing here is stray. The launcher and the engine each load their own
+	// copy of the graphics library from where they themselves sit -- the
+	// launcher's beside the executable, the engine's in engine/ -- because
+	// each is loaded by name at runtime from its own directory. Both copies
+	// are meant to be there; removing the launcher's leaves it unable to open
+	// a window at all, which is what happened before this guard.
+	(void)exeDir;
+	return 0;
+#else
 	// Only for the engine\ layout: a legacy flat install keeps its DLLs beside
 	// the exe on purpose. And only a root DLL whose twin lives in engine\ -- a
 	// file we do not ship there is not ours to touch.
@@ -1734,6 +1744,7 @@ int RemoveStrayRootDlls(const std::wstring& exeDir)
 	} while (FindNextFileW(h, &fd));
 	FindClose(h);
 	return removed;
+#endif
 }
 
 void CleanupAppUpdateLeftovers(const std::wstring& exeDir)
