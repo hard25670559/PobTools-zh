@@ -66,6 +66,10 @@ public:
 	class core_IMain* core = nullptr;
 
 	bool	initialised = false;
+	// This engine takes the window system's events itself. True when Run
+	// drives the frame loop; false when something outside steps several
+	// engines and takes the events once for all of them.
+	bool	pollsOwnEvents = false;
 	bool	minimized = false;
 	// POB_ZH_HEADLESS=1: no GLFW window, frame loop paced by stdin requests,
 	// errors go to the failure log and a non-zero exit code instead of a

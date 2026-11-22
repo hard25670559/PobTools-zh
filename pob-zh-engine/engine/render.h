@@ -78,6 +78,15 @@ public:
 	virtual void	Init(r_featureFlag_e features) = 0;
 	virtual void	Shutdown() = 0;
 
+	// This engine's own interface state.
+	//
+	// Which one the interface library acts on is global to the process, so
+	// anything reached from a window callback -- "does the interface want this
+	// click?" among them -- has to say whose it is first. With one POB there
+	// is only ever one and it does not come up; with several, the last one
+	// created owns it and everybody else reads its answers.
+	virtual void	MakeImGuiCurrent() = 0;
+
 	virtual void	BeginFrame() = 0;
 	virtual void	EndFrame() = 0;
 	// PobTools: did the last EndFrame reach the screen? An elided frame is not

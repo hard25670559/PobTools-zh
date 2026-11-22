@@ -759,11 +759,25 @@ bool sys_main_c::RunOneFrame()
 			// Headless has no window to poll; this pass is done.
 			return !exitFlag;
 		}
-		if (minimized) {
-			glfwWaitEventsTimeout(0.1);
-		}
-		else {
-			glfwPollEvents();
+		// Taking the window system's events is the whole process's job, not
+		// each engine's.
+		//
+		// One pass hands out everything waiting, to every window at once. An
+		// engine doing it per frame is fine while it is the only one; with
+		// several, the first to run takes the batch -- and a release that
+		// belongs to another window is delivered during that engine's pass
+		// and seen by nobody waiting for it. POB is then left believing the
+		// button is still down and drags the tree around.
+		//
+		// pollsOwnEvents is set when Run drives the loop itself, which is
+		// still one engine to a process.
+		if (pollsOwnEvents) {
+			if (minimized) {
+				glfwWaitEventsTimeout(0.1);
+			}
+			else {
+				glfwPollEvents();
+			}
 		}
 		auto wnd = (GLFWwindow*)video->GetWindowHandle();
 		// Claim the drawing context for this engine's own window.
@@ -847,6 +861,8 @@ bool sys_main_c::RunFinish()
 
 bool sys_main_c::Run(int argc, char** argv)
 {
+	// Run owns the process; nobody else is taking events.
+	pollsOwnEvents = true;
 	try {
 		if (RunStart(argc, argv)) {
 			while (RunOneFrame()) {}

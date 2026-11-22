@@ -72,6 +72,7 @@ public:
 	void	Init(r_featureFlag_e features);
 	void	Shutdown();
 
+	void	MakeImGuiCurrent();
 	void	BeginFrame();
 	void	EndFrame();
 	bool	LastFramePresented() { return lastFramePresented_; }

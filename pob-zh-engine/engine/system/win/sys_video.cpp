@@ -34,6 +34,7 @@
 #include <utility>
 
 #include <imgui.h>
+#include <imgui_impl_glfw.h>
 #include <stb_image_resize.h>
 
 // ====================
@@ -67,6 +68,9 @@ public:
 
 	bool	initialised = false;
 	bool	ignoreDpiScale = false;
+	// Mouse buttons whose press the interface took; their release goes to it
+	// too, never to POB (see the mouse button callback).
+	std::map<int, bool> mouseHeldByUi;
 	GLFWwindow* wnd = nullptr;
 
 	void	RefreshMonitorInfo();
@@ -825,8 +829,20 @@ int sys_video_c::Apply(sys_vidSet_s* set)
 
 		// Set up all our window callbacks
 		glfwSetWindowUserPointer(wnd, sys);
+		// Not for the engine's own use: the interface library needs to be told
+		// which window the window system considers focused, and with its own
+		// callbacks off (r_main.cpp) nothing else tells it.
+		glfwSetWindowFocusCallback(wnd, [](GLFWwindow* wnd, int focused) {
+			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
+			if (sys->core) sys->core->MakeImGuiCurrent();
+			ImGui_ImplGlfw_WindowFocusCallback(wnd, focused);
+			});
 		glfwSetCursorEnterCallback(wnd, [](GLFWwindow* wnd, int entered) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
+			// This window's engine, not whichever was created last
+			// (core_IMain::MakeImGuiCurrent).
+			if (sys->core) sys->core->MakeImGuiCurrent();
+			ImGui_ImplGlfw_CursorEnterCallback(wnd, entered);
 			auto video = (sys_video_c*)sys->video;
 			bool is_inside = !!entered;
 			video->cursorInWindow = is_inside;
@@ -836,6 +852,10 @@ int sys_video_c::Apply(sys_vidSet_s* set)
 			});
 		glfwSetCursorPosCallback(wnd, [](GLFWwindow* wnd, double x, double y) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
+			// This window's engine, not whichever was created last
+			// (core_IMain::MakeImGuiCurrent).
+			if (sys->core) sys->core->MakeImGuiCurrent();
+			ImGui_ImplGlfw_CursorPosCallback(wnd, x, y);
 			if (ImGui::GetIO().WantCaptureMouse) {
 				return;
 			}
@@ -844,33 +864,55 @@ int sys_video_c::Apply(sys_vidSet_s* set)
 			});
 		glfwSetWindowCloseCallback(wnd, [](GLFWwindow* wnd) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
+			// This window's engine, not whichever was created last
+			// (core_IMain::MakeImGuiCurrent).
+			if (sys->core) sys->core->MakeImGuiCurrent();
 			glfwSetWindowShouldClose(wnd, sys->initialised && sys->core->CanExit());
 			});
 		glfwSetWindowIconifyCallback(wnd, [](GLFWwindow* wnd, int value) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
+			// This window's engine, not whichever was created last
+			// (core_IMain::MakeImGuiCurrent).
+			if (sys->core) sys->core->MakeImGuiCurrent();
 			sys->minimized = value == 1 ? true : false;
 			});
 		glfwSetFramebufferSizeCallback(wnd, [](GLFWwindow* wnd, int width, int height) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
+			// This window's engine, not whichever was created last
+			// (core_IMain::MakeImGuiCurrent).
+			if (sys->core) sys->core->MakeImGuiCurrent();
 			sys->video->FramebufferSizeChanged(width, height);
 			});
 		glfwSetWindowSizeCallback(wnd, [](GLFWwindow* wnd, int width, int height) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
+			// This window's engine, not whichever was created last
+			// (core_IMain::MakeImGuiCurrent).
+			if (sys->core) sys->core->MakeImGuiCurrent();
 			bool maximized = glfwGetWindowAttrib(wnd, GLFW_MAXIMIZED);
 			sys->video->SizeChanged(width, height, maximized);
 			});
 		glfwSetWindowMaximizeCallback(wnd, [](GLFWwindow* wnd, int maximized) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
+			// This window's engine, not whichever was created last
+			// (core_IMain::MakeImGuiCurrent).
+			if (sys->core) sys->core->MakeImGuiCurrent();
 			int width{}, height{};
 			glfwGetWindowSize(wnd, &width, &height);
 			sys->video->SizeChanged(width, height, maximized == GLFW_TRUE);
 			});
 		glfwSetWindowPosCallback(wnd, [](GLFWwindow* wnd, int x, int y) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
+			// This window's engine, not whichever was created last
+			// (core_IMain::MakeImGuiCurrent).
+			if (sys->core) sys->core->MakeImGuiCurrent();
 			sys->video->PosChanged(x, y);
 			});
 		glfwSetCharCallback(wnd, [](GLFWwindow* wnd, uint32_t codepoint) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
+			// This window's engine, not whichever was created last
+			// (core_IMain::MakeImGuiCurrent).
+			if (sys->core) sys->core->MakeImGuiCurrent();
+			ImGui_ImplGlfw_CharCallback(wnd, codepoint);
 			/* Always pass character events to POB (no ImGui guard here).
 			 * This is essential for Windows IME: composed CJK characters
 			 * arrive via WM_CHAR → glfwCharCallback and must reach Lua.
@@ -879,6 +921,10 @@ int sys_video_c::Apply(sys_vidSet_s* set)
 			});
 		glfwSetKeyCallback(wnd, [](GLFWwindow* wnd, int key, int scancode, int action, int mods) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
+			// This window's engine, not whichever was created last
+			// (core_IMain::MakeImGuiCurrent).
+			if (sys->core) sys->core->MakeImGuiCurrent();
+			ImGui_ImplGlfw_KeyCallback(wnd, key, scancode, action, mods);
 			if (ImGui::GetIO().WantCaptureKeyboard) {
 				return;
 			}
@@ -894,9 +940,10 @@ int sys_video_c::Apply(sys_vidSet_s* set)
 			});
 		glfwSetMouseButtonCallback(wnd, [](GLFWwindow* wnd, int button, int action, int mods) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
-			if (ImGui::GetIO().WantCaptureMouse) {
-				return;
-			}
+			// This window's engine, not whichever was created last
+			// (core_IMain::MakeImGuiCurrent).
+			if (sys->core) sys->core->MakeImGuiCurrent();
+			ImGui_ImplGlfw_MouseButtonCallback(wnd, button, action, mods);
 			auto video = (sys_video_c*)sys->video;
 			int sg_key;
 			switch (button) {
@@ -919,6 +966,27 @@ int sys_video_c::Apply(sys_vidSet_s* set)
 				return;
 			}
 			bool is_down = action == GLFW_PRESS;
+
+			// Whoever got the press gets the release.
+			//
+			// Asking the interface "is this mouse yours?" on each event
+			// separately can answer differently for the two halves of one
+			// click: the press reaches POB, the pointer then moves over
+			// something the interface owns, and the release is swallowed --
+			// POB never learns the button came up and goes on dragging the
+			// tree with nothing held down.
+			if (is_down) {
+				if (ImGui::GetIO().WantCaptureMouse) {
+					video->mouseHeldByUi[sg_key] = true;
+					return;
+				}
+				video->mouseHeldByUi[sg_key] = false;
+			}
+			else if (video->mouseHeldByUi[sg_key]) {
+				video->mouseHeldByUi[sg_key] = false;
+				return;
+			}
+
 			sys->heldKeyState[sg_key] = is_down;
 			keyEvent_s sg_type = is_down ? KE_KEYDOWN : KE_KEYUP;
 
@@ -958,6 +1026,10 @@ int sys_video_c::Apply(sys_vidSet_s* set)
 			});
 		glfwSetScrollCallback(wnd, [](GLFWwindow* wnd, double xoffset, double yoffset) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
+			// This window's engine, not whichever was created last
+			// (core_IMain::MakeImGuiCurrent).
+			if (sys->core) sys->core->MakeImGuiCurrent();
+			ImGui_ImplGlfw_ScrollCallback(wnd, xoffset, yoffset);
 			if (ImGui::GetIO().WantCaptureMouse) {
 				return;
 			}
@@ -972,6 +1044,9 @@ int sys_video_c::Apply(sys_vidSet_s* set)
 			});
 		glfwSetWindowContentScaleCallback(wnd, [](GLFWwindow* wnd, float xScale, float yScale) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
+			// This window's engine, not whichever was created last
+			// (core_IMain::MakeImGuiCurrent).
+			if (sys->core) sys->core->MakeImGuiCurrent();
 			auto video = (sys_video_c*)sys->video;
 			if (!video->ignoreDpiScale) {
 				video->vid.dpiScale = xScale;

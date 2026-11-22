@@ -5,6 +5,8 @@
 // Platform: Windows
 //
 
+#include <atomic>
+
 #include <glad/gles2.h>
 
 #include "sys_local.h"
@@ -49,16 +51,31 @@ sys_openGL_c::sys_openGL_c(sys_IMain* sysHnd)
 // System OpenGL Class
 // ===================
 
+// How many engines are drawing in this process. Only the first waits for the
+// display; see Init.
+static std::atomic<int> s_drawingEngines{0};
+
 bool sys_openGL_c::Init(sys_glSet_s* set)
 {
 	// Set swap interval
-	glfwSwapInterval(set->vsync ? 1 : 0);
+	//
+	// Only the first engine in the process waits for the display. Waiting is
+	// per window, so with several POBs open each one waits in turn and the
+	// round takes as many display frames as there are windows -- the pointer
+	// then answers at a fraction of the rate and everything feels heavy. One
+	// waiting is enough to pace the whole round.
+	//
+	// A process running one POB, which is every Windows one, takes the same
+	// path it always did.
+	const int others = s_drawingEngines.fetch_add(1, std::memory_order_relaxed);
+	glfwSwapInterval(set->vsync && others == 0 ? 1 : 0);
 
 	return false;
 }
 
 bool sys_openGL_c::Shutdown()
 {
+	s_drawingEngines.fetch_sub(1, std::memory_order_relaxed);
 	return false;
 }
 

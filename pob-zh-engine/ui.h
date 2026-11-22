@@ -18,5 +18,7 @@ public:
 	virtual void	Frame() = 0;
 	virtual void	Shutdown() = 0;
 	virtual void	KeyEvent(int key, int type) = 0;
+	// See core_IMain::MakeImGuiCurrent.
+	virtual void	MakeImGuiCurrent() = 0;
 	virtual bool	CanExit() = 0;
 };

@@ -21,6 +21,7 @@ public:
 	void	Frame();
 	void	Shutdown();
 	void	KeyEvent(int key, int type);
+	void	MakeImGuiCurrent();
 	bool	CanExit();
 
 	// Encapsulated
@@ -93,6 +94,13 @@ void core_main_c::Shutdown()
 	core_IConfig::FreeHandle(config);
 
 	sys->con->Printf("Engine shutdown complete.\n");
+}
+
+// Passed straight down to the UI layer, which owns the renderer that owns the
+// state (core_main.h).
+void core_main_c::MakeImGuiCurrent()
+{
+	if (ui) ui->MakeImGuiCurrent();
 }
 
 void core_main_c::KeyEvent(int key, int type)

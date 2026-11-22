@@ -18,6 +18,7 @@ public:
 	void	Frame();
 	void	Shutdown();
 	void	KeyEvent(int key, int type);
+	void	MakeImGuiCurrent();
 	bool	CanExit();
 
 	// Encapsulated

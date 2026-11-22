@@ -7,6 +7,8 @@
 
 #include "system/win/sys_local.h"
 #include "startup_trace.h"
+
+#include <GLFW/glfw3.h>
 #if 0
 #pragma comment(lib, "winmm")
 #pragma comment(lib, "opengl32")
@@ -106,6 +108,13 @@ extern "C" SIMPLEGRAPHIC_DLL_PUBLIC void* PobEngineOpen(int argc, char** argv)
 }
 
 // False once this POB is finished; the caller then closes it.
+// The caller takes the window system's events itself, once per round, before
+// stepping any engine -- see the comment in sys_main.cpp's frame loop.
+extern "C" SIMPLEGRAPHIC_DLL_PUBLIC void PobEnginePollEvents(void)
+{
+	glfwPollEvents();
+}
+
 extern "C" SIMPLEGRAPHIC_DLL_PUBLIC int PobEngineStep(void* handle)
 {
 	if (!handle) return 0;

@@ -1192,7 +1192,15 @@ void r_renderer_c::Init(r_featureFlag_e features)
 		ImGui::GetIO().IniFilename = iniPath.c_str();
 	}
 
-	ImGui_ImplGlfw_InitForOpenGL((GLFWwindow*)sys->video->GetWindowHandle(), true);
+	// false: the window callbacks are ours, and each forwards to the interface
+	// library after saying whose state this event is for.
+	//
+	// Letting it install its own is what the library itself warns against when
+	// a process has more than one interface state (imgui_impl_glfw.cpp, "you
+	// will need to register your own callbacks"): those callbacks read
+	// whichever state is current, so with several POBs open every window's
+	// events are applied to the one created last.
+	ImGui_ImplGlfw_InitForOpenGL((GLFWwindow*)sys->video->GetWindowHandle(), false);
 	ImGui_ImplOpenGL3_Init("#version 100");
 
 	startup_trace_mark("renderer: window + GL ready, loading fonts");
@@ -1309,8 +1317,14 @@ void r_renderer_c::PumpShaders()
 extern void pob_hold_apple_layer_scale(sys_IVideo* video);
 #endif
 
+void r_renderer_c::MakeImGuiCurrent()
+{
+	if (imguiCtx) ImGui::SetCurrentContext(imguiCtx);
+}
+
 void r_renderer_c::BeginFrame()
 {
+	MakeImGuiCurrent();
 #if defined(__APPLE__)
 	pob_hold_apple_layer_scale(sys->video);
 #endif

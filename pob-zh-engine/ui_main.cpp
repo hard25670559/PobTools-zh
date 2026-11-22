@@ -907,6 +907,12 @@ void ui_main_c::PollExitPending()
 // Input Handling
 // ==============
 
+// Down to the renderer, which holds this engine's interface state.
+void ui_main_c::MakeImGuiCurrent()
+{
+	if (renderer) renderer->MakeImGuiCurrent();
+}
+
 void ui_main_c::KeyEvent(int key, int type)
 {
 	if (conUI->KeyEvent(key, type)) {
