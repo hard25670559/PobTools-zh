@@ -3187,6 +3187,58 @@ inline FILE* _wfsopen(const wchar_t* path, const wchar_t* mode, int shareFlag)
 
 // ------------------------------------------------------- format helpers
 
+namespace pob_win_compat {
+
+// MSVC's wide formatters read %s as a WIDE string and %S as a narrow one. The
+// C standard -- and so this platform's vswprintf -- reads them the other way
+// round. The mismatch is not a compile error: it reads the wrong kind of
+// pointer at run time, and the conversion simply produces nothing. That is why
+// the diagnostic log, whose file name is built with "%s-<date>.log", was never
+// written.
+//
+// Rewriting the specifiers here rather than at the call sites keeps the
+// callers as Windows wants them, and covers every one of them at once.
+inline std::wstring PosixWideFormat(const wchar_t* format)
+{
+	std::wstring out;
+	if (format == nullptr) return out;
+	for (const wchar_t* p = format; *p != L'\0'; ++p) {
+		out.push_back(*p);
+		if (*p != L'%') continue;
+		++p;
+		if (*p == L'\0') break;
+		if (*p == L'%') { out.push_back(*p); continue; }
+
+		std::wstring mods;
+		while (*p != L'\0' && std::wcschr(L"-+ #0", *p) != nullptr) mods.push_back(*p++);
+		while (*p >= L'0' && *p <= L'9') mods.push_back(*p++);
+		if (*p == L'.') {
+			mods.push_back(*p++);
+			while (*p >= L'0' && *p <= L'9') mods.push_back(*p++);
+		}
+		std::wstring len;
+		while (*p != L'\0' && std::wcschr(L"hlLjztqw", *p) != nullptr) len.push_back(*p++);
+		if (*p == L'\0') { out += mods; out += len; break; }
+
+		wchar_t conv = *p;
+		if (conv == L's' || conv == L'c') {
+			// Wide unless the caller said otherwise; 'w' is MSVC's spelling of
+			// the same thing, 'h' its spelling of the narrow form.
+			if (len == L"w" || len.empty()) len = L"l";
+			else if (len == L"h") len.clear();
+		} else if (conv == L'S' || conv == L'C') {
+			conv = (conv == L'S') ? L's' : L'c';
+			len.clear();
+		}
+		out += mods;
+		out += len;
+		out.push_back(conv);
+	}
+	return out;
+}
+
+} // namespace pob_win_compat
+
 // Win32 (MSVC): the bounds-checked wide formatter. The portable swprintf takes
 // the same arguments with the size in the second position, which is what the
 // array-size overload below forwards.
@@ -3203,9 +3255,10 @@ inline int sprintf_s(char (&buffer)[N], const char* format, ...)
 template <size_t N>
 inline int swprintf_s(wchar_t (&buffer)[N], const wchar_t* format, ...)
 {
+	const std::wstring fmt = pob_win_compat::PosixWideFormat(format);
 	va_list args;
 	va_start(args, format);
-	const int n = ::vswprintf(buffer, N, format, args);
+	const int n = ::vswprintf(buffer, N, fmt.c_str(), args);
 	va_end(args);
 	return n;
 }
@@ -3213,9 +3266,10 @@ inline int swprintf_s(wchar_t (&buffer)[N], const wchar_t* format, ...)
 // The explicit-size form, which callers use for a heap buffer.
 inline int swprintf_s(wchar_t* buffer, size_t size, const wchar_t* format, ...)
 {
+	const std::wstring fmt = pob_win_compat::PosixWideFormat(format);
 	va_list args;
 	va_start(args, format);
-	const int n = ::vswprintf(buffer, size, format, args);
+	const int n = ::vswprintf(buffer, size, fmt.c_str(), args);
 	va_end(args);
 	return n;
 }
