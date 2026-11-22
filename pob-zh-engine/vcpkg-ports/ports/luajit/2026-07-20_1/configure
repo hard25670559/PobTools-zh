@@ -47,7 +47,13 @@ BUILDVM_PREFIX = ${LUAJIT_PREFIX}/manual-tools/luajit
 DASM_ARCHS = ${LUAJIT_DASM_ARCHS}
 else
 # cross
-BUILD_OPTIONS += 'HOST_CC=:'
+# The host compiler, not a no-op. The pre-built buildvm below removes the need
+# to build that one tool for the host, which is what a no-op here was for, but
+# LuaJIT also builds `minilua` with this compiler and runs it to generate
+# luajit.h -- with no compiler there is no minilua, and the build stops at a
+# missing file. `cc` builds for the machine doing the building, which is what a
+# host tool is.
+BUILD_OPTIONS += 'HOST_CC=cc'
 BUILD_OPTIONS += 'BUILDVM_T='
 BUILD_OPTIONS += 'BUILDVM_X=${LUAJIT_BUILDVM_X}'
 endif

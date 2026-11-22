@@ -2,14 +2,13 @@
   "name": "path-of-building-simplegraphic",
   "version": "2.5",
   "dependencies": [
+    "angle",
     {
       "name": "angle",
       "features": [
-        {
-          "name": "metal",
-          "platform": "osx"
-        }
-      ]
+        "metal"
+      ],
+      "platform": "osx"
     },
     "curl",
     "fmt",
@@ -28,12 +27,5 @@
     },
     "zlib",
     "zstd"
-  ],
-  "overrides": [
-    {
-      "name": "angle",
-      "version": "chromium_7258",
-      "port-version": 2
-    }
   ]
 }

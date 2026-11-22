@@ -4,6 +4,8 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>zh_TW</string>
+	<key>CFBundleIconFile</key>
+	<string>PobTools</string>
 	<key>CFBundleExecutable</key>
 	<string>pob-zh</string>
 	<key>CFBundleIdentifier</key>

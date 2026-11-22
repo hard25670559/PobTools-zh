@@ -14,6 +14,28 @@ endif ()
 
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 
+# ANGLE, on macOS only, from a port of our own.
+#
+# What ANGLE translates POB's drawing calls into on this platform decides
+# whether the surface it draws into keeps step with the window; its Metal path
+# does, its older one does not (see the macOS notes). That path is a build
+# option, off by default, and only present in a newer ANGLE than the one this
+# project's package baseline pins.
+#
+# An overlay port is how that reaches macOS without reaching Windows: it is
+# consulted only on this platform, so a Windows build resolves ANGLE exactly as
+# it did before this directory existed -- same version, same options, same
+# build steps. The newer port also wants Python packages at build time, which
+# the baseline's Python cannot install; a Windows build never runs that step
+# because it never reads this port.
+if (APPLE)
+    # Through the cache, and FORCE: vcpkg reads this as a cache entry, and an
+    # ordinary variable of the same name is not what it ends up seeing.
+    list(APPEND VCPKG_OVERLAY_PORTS "${PROJECT_SOURCE_DIR}/vcpkg-ports-apple")
+    list(REMOVE_DUPLICATES VCPKG_OVERLAY_PORTS)
+    set(VCPKG_OVERLAY_PORTS "${VCPKG_OVERLAY_PORTS}" CACHE STRING "Overlay ports for vcpkg" FORCE)
+endif ()
+
 include(${PROJECT_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake)
 
 # macOS app bundle.
@@ -746,6 +768,51 @@ if (WIN32 OR APPLE)
         configure_file("${CMAKE_CURRENT_SOURCE_DIR}/host/data/Info.plist.in"
                        "${CMAKE_CURRENT_BINARY_DIR}/Info.plist" @ONLY)
         install(FILES "${CMAKE_CURRENT_BINARY_DIR}/Info.plist" DESTINATION "..")
+
+        # The program's own icon, in the form the Finder reads.
+        #
+        # host/pobtools.ico is what Windows uses, and holds a 256 px image.
+        # macOS wants an .icns, which is a set of sizes rather than one image,
+        # so the sizes are rendered from it here. Both tools ship with the
+        # system. Above 256 the image is enlarged rather than redrawn -- those
+        # entries exist so the Finder has something to show at its largest
+        # sizes instead of nothing.
+        set(POBTOOLS_ICON_SRC "${CMAKE_CURRENT_SOURCE_DIR}/host/pobtools.ico")
+        set(POBTOOLS_ICONSET "${CMAKE_CURRENT_BINARY_DIR}/PobTools.iconset")
+        set(POBTOOLS_ICNS "${CMAKE_CURRENT_BINARY_DIR}/PobTools.icns")
+        add_custom_command(
+            OUTPUT "${POBTOOLS_ICNS}"
+            COMMAND "${CMAKE_COMMAND}" -E rm -rf "${POBTOOLS_ICONSET}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${POBTOOLS_ICONSET}"
+            # .ico first to a plain image: sips will not enlarge straight from it.
+            COMMAND sips -s format png "${POBTOOLS_ICON_SRC}"
+                    --out "${CMAKE_CURRENT_BINARY_DIR}/pobtools_icon.png" > /dev/null
+            COMMAND sips -z 16 16 "${CMAKE_CURRENT_BINARY_DIR}/pobtools_icon.png"
+                    --out "${POBTOOLS_ICONSET}/icon_16x16.png" > /dev/null
+            COMMAND sips -z 32 32 "${CMAKE_CURRENT_BINARY_DIR}/pobtools_icon.png"
+                    --out "${POBTOOLS_ICONSET}/icon_16x16@2x.png" > /dev/null
+            COMMAND sips -z 32 32 "${CMAKE_CURRENT_BINARY_DIR}/pobtools_icon.png"
+                    --out "${POBTOOLS_ICONSET}/icon_32x32.png" > /dev/null
+            COMMAND sips -z 64 64 "${CMAKE_CURRENT_BINARY_DIR}/pobtools_icon.png"
+                    --out "${POBTOOLS_ICONSET}/icon_32x32@2x.png" > /dev/null
+            COMMAND sips -z 128 128 "${CMAKE_CURRENT_BINARY_DIR}/pobtools_icon.png"
+                    --out "${POBTOOLS_ICONSET}/icon_128x128.png" > /dev/null
+            COMMAND sips -z 256 256 "${CMAKE_CURRENT_BINARY_DIR}/pobtools_icon.png"
+                    --out "${POBTOOLS_ICONSET}/icon_128x128@2x.png" > /dev/null
+            COMMAND sips -z 256 256 "${CMAKE_CURRENT_BINARY_DIR}/pobtools_icon.png"
+                    --out "${POBTOOLS_ICONSET}/icon_256x256.png" > /dev/null
+            COMMAND sips -z 512 512 "${CMAKE_CURRENT_BINARY_DIR}/pobtools_icon.png"
+                    --out "${POBTOOLS_ICONSET}/icon_256x256@2x.png" > /dev/null
+            COMMAND sips -z 512 512 "${CMAKE_CURRENT_BINARY_DIR}/pobtools_icon.png"
+                    --out "${POBTOOLS_ICONSET}/icon_512x512.png" > /dev/null
+            COMMAND sips -z 1024 1024 "${CMAKE_CURRENT_BINARY_DIR}/pobtools_icon.png"
+                    --out "${POBTOOLS_ICONSET}/icon_512x512@2x.png" > /dev/null
+            COMMAND iconutil -c icns "${POBTOOLS_ICONSET}" -o "${POBTOOLS_ICNS}"
+            DEPENDS "${POBTOOLS_ICON_SRC}"
+            COMMENT "Rendering the app icon for the Finder"
+            VERBATIM)
+        add_custom_target(pobtools_icon ALL DEPENDS "${POBTOOLS_ICNS}")
+        install(FILES "${POBTOOLS_ICNS}" DESTINATION "../Resources")
         # The dylibs sit beside the executable, so this is where they are
         # looked up from -- no install_name rewriting needed.
         set_target_properties(pob-zh PROPERTIES
