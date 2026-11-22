@@ -1,4 +1,5 @@
 #include "custom_rules_io.h"
+#include <filesystem>
 #include <algorithm>
 #include "filter_parser.h"
 
@@ -116,7 +117,7 @@ std::string ExportCustomRules(const FilterFile& f, const std::vector<int>& block
 
 bool SaveCustomRulesFile(const std::wstring& path, const std::string& fragment, std::string* err)
 {
-	std::ofstream o(path, std::ios::binary);
+	std::ofstream o(std::filesystem::path(path), std::ios::binary);
 	if (!o) { if (err) *err = "cannot open file for writing"; return false; }
 	o.write("\xEF\xBB\xBF", 3);
 	o.write(fragment.data(), (std::streamsize)fragment.size());

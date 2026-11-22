@@ -39,6 +39,7 @@
 #include <vector>
 #include <sys/resource.h>
 #include <sys/file.h>
+#include <sys/statvfs.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <signal.h>
@@ -2139,6 +2140,670 @@ inline int EnumWindows(int (*callback)(HWND, LPARAM), LPARAM param)
 	return 1;
 }
 
+// ------------------------------------------------- file dialogs
+
+// Win32 opens the system file chooser through this structure. macOS has one
+// too, but reaching it needs the main thread and an AppKit run loop, which a
+// call from arbitrary code cannot assume. osascript asks the desktop for the
+// same native panel from a child process, which works from anywhere.
+
+#if !defined(OFN_FILEMUSTEXIST)
+#define OFN_FILEMUSTEXIST 0x00001000u
+#endif
+#if !defined(OFN_PATHMUSTEXIST)
+#define OFN_PATHMUSTEXIST 0x00000800u
+#endif
+#if !defined(OFN_OVERWRITEPROMPT)
+#define OFN_OVERWRITEPROMPT 0x00000002u
+#endif
+#if !defined(OFN_NOCHANGEDIR)
+#define OFN_NOCHANGEDIR 0x00000008u
+#endif
+#if !defined(OFN_EXPLORER)
+#define OFN_EXPLORER 0x00080000u
+#endif
+#if !defined(OFN_HIDEREADONLY)
+#define OFN_HIDEREADONLY 0x00000004u
+#endif
+
+struct OPENFILENAMEW {
+	unsigned long lStructSize;
+	HWND hwndOwner;
+	HINSTANCE hInstance;
+	const wchar_t* lpstrFilter;
+	wchar_t* lpstrCustomFilter;
+	unsigned long nMaxCustFilter;
+	unsigned long nFilterIndex;
+	wchar_t* lpstrFile;
+	unsigned long nMaxFile;
+	wchar_t* lpstrFileTitle;
+	unsigned long nMaxFileTitle;
+	const wchar_t* lpstrInitialDir;
+	const wchar_t* lpstrTitle;
+	unsigned long Flags;
+	unsigned short nFileOffset;
+	unsigned short nFileExtension;
+	const wchar_t* lpstrDefExt;
+	LPARAM lCustData;
+	void* lpfnHook;
+	const wchar_t* lpTemplateName;
+	void* pvReserved;
+	unsigned long dwReserved;
+	unsigned long FlagsEx;
+};
+using OPENFILENAME = OPENFILENAMEW;
+
+namespace pob_win_compat {
+
+// Runs a command and returns its standard output, trimmed. Used for the file
+// panels below.
+inline std::string CaptureCommand(const std::vector<std::string>& argv)
+{
+	int fds[2] = { -1, -1 };
+	if (::pipe(fds) != 0) return std::string();
+	const pid_t pid = ::fork();
+	if (pid < 0) { ::close(fds[0]); ::close(fds[1]); return std::string(); }
+	if (pid == 0) {
+		::close(fds[0]);
+		::dup2(fds[1], STDOUT_FILENO);
+		::close(fds[1]);
+		std::vector<char*> raw;
+		for (const std::string& a : argv) raw.push_back(const_cast<char*>(a.c_str()));
+		raw.push_back(nullptr);
+		::execvp(raw[0], raw.data());
+		::_exit(127);
+	}
+	::close(fds[1]);
+	std::string out;
+	char buf[1024];
+	for (;;) {
+		const ssize_t n = ::read(fds[0], buf, sizeof(buf));
+		if (n < 0) { if (errno == EINTR) continue; break; }
+		if (n == 0) break;
+		out.append(buf, static_cast<size_t>(n));
+	}
+	::close(fds[0]);
+	int status = 0;
+	::waitpid(pid, &status, 0);
+	while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) out.pop_back();
+	if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) return std::string();
+	return out;
+}
+
+inline bool RunFilePanel(OPENFILENAMEW* ofn, bool saving)
+{
+	if (ofn == nullptr || ofn->lpstrFile == nullptr || ofn->nMaxFile == 0) return false;
+	std::string prompt = "Choose a file";
+	if (ofn->lpstrTitle != nullptr) prompt = WideToUtf8(ofn->lpstrTitle);
+	// Quotes inside the prompt would end the AppleScript string.
+	std::string safe;
+	for (char c : prompt) {
+		if (c != '"' && c != '\\') safe.push_back(c);
+	}
+	const std::string script = saving
+		? ("POSIX path of (choose file name with prompt \"" + safe + "\")")
+		: ("POSIX path of (choose file with prompt \"" + safe + "\")");
+	const std::string path = CaptureCommand({ "osascript", "-e", script });
+	if (path.empty()) return false;   // cancelled, or no desktop to ask
+	Utf8ToWide(path.c_str(), ofn->lpstrFile, ofn->nMaxFile);
+	return true;
+}
+
+} // namespace pob_win_compat
+
+inline int GetOpenFileNameW(OPENFILENAMEW* ofn)
+{
+	return pob_win_compat::RunFilePanel(ofn, false) ? 1 : 0;
+}
+
+inline int GetSaveFileNameW(OPENFILENAMEW* ofn)
+{
+	return pob_win_compat::RunFilePanel(ofn, true) ? 1 : 0;
+}
+
+// ------------------------------------------------------ odds and ends
+
+#if !defined(WM_CLOSE)
+#define WM_CLOSE 0x0010u
+#endif
+#if !defined(WM_QUIT)
+#define WM_QUIT 0x0012u
+#endif
+#if !defined(WM_CHAR)
+#define WM_CHAR 0x0102u
+#endif
+
+struct OSVERSIONINFOW {
+	unsigned long dwOSVersionInfoSize;
+	unsigned long dwMajorVersion;
+	unsigned long dwMinorVersion;
+	unsigned long dwBuildNumber;
+	unsigned long dwPlatformId;
+	wchar_t szCSDVersion[128];
+};
+
+// Win32 window properties, used by the WebView2 host window only.
+inline HANDLE GetPropW(HWND window, const wchar_t* name)
+{
+	(void)window; (void)name;
+	return nullptr;
+}
+inline int SetPropW(HWND window, const wchar_t* name, HANDLE value)
+{
+	(void)window; (void)name; (void)value;
+	return 0;
+}
+inline HANDLE RemovePropW(HWND window, const wchar_t* name)
+{
+	(void)window; (void)name;
+	return nullptr;
+}
+
+// Win32 clipboard. The launcher's own clipboard access goes through GLFW,
+// which works on every platform; these are the raw calls a Windows-only path
+// uses, and reporting "could not open" sends the caller down the branch it
+// already has for a clipboard another process is holding.
+inline int OpenClipboard(HWND owner) { (void)owner; return 0; }
+inline int CloseClipboard() { return 0; }
+inline int EmptyClipboard() { return 0; }
+inline HANDLE GetClipboardData(unsigned int format) { (void)format; return nullptr; }
+inline HANDLE SetClipboardData(unsigned int format, HANDLE data)
+{
+	(void)format; (void)data;
+	return nullptr;
+}
+inline void* GlobalLock(HANDLE h) { return h; }
+inline int GlobalUnlock(HANDLE h) { (void)h; return 0; }
+inline HANDLE GlobalAlloc(unsigned int flags, size_t size)
+{
+	(void)flags;
+	return std::malloc(size);
+}
+inline HANDLE GlobalFree(HANDLE h) { std::free(h); return nullptr; }
+
+#if !defined(CF_UNICODETEXT)
+#define CF_UNICODETEXT 13u
+#endif
+#if !defined(GMEM_MOVEABLE)
+#define GMEM_MOVEABLE 0x0002u
+#endif
+
+// --------------------------------------------- remaining constants
+
+#if !defined(FILE_BEGIN)
+#define FILE_BEGIN 0u
+#endif
+#if !defined(FILE_CURRENT)
+#define FILE_CURRENT 1u
+#endif
+#if !defined(FILE_END)
+#define FILE_END 2u
+#endif
+#if !defined(FILE_WRITE_ATTRIBUTES)
+#define FILE_WRITE_ATTRIBUTES 0x00000100u
+#endif
+#if !defined(FILE_FLAG_SEQUENTIAL_SCAN)
+#define FILE_FLAG_SEQUENTIAL_SCAN 0x08000000u
+#endif
+#if !defined(FILE_ATTRIBUTE_READONLY)
+#define FILE_ATTRIBUTE_READONLY 0x00000001u
+#endif
+#if !defined(FILE_ATTRIBUTE_REPARSE_POINT)
+#define FILE_ATTRIBUTE_REPARSE_POINT 0x00000400u
+#endif
+#if !defined(IO_REPARSE_TAG_SYMLINK)
+#define IO_REPARSE_TAG_SYMLINK 0xA000000Cu
+#endif
+#if !defined(IO_REPARSE_TAG_MOUNT_POINT)
+#define IO_REPARSE_TAG_MOUNT_POINT 0xA0000003u
+#endif
+#if !defined(ERROR_FILE_EXISTS)
+#define ERROR_FILE_EXISTS 80u
+#endif
+#if !defined(WAIT_ABANDONED)
+#define WAIT_ABANDONED 128u
+#endif
+#if !defined(STD_INPUT_HANDLE)
+#define STD_INPUT_HANDLE 0xFFFFFFF6u
+#endif
+#if !defined(STD_OUTPUT_HANDLE)
+#define STD_OUTPUT_HANDLE 0xFFFFFFF5u
+#endif
+#if !defined(STD_ERROR_HANDLE)
+#define STD_ERROR_HANDLE 0xFFFFFFF4u
+#endif
+#if !defined(KEY_QUERY_VALUE)
+#define KEY_QUERY_VALUE 0x0001u
+#endif
+#if !defined(KEY_SET_VALUE)
+#define KEY_SET_VALUE 0x0002u
+#endif
+#if !defined(REG_OPTION_NON_VOLATILE)
+#define REG_OPTION_NON_VOLATILE 0u
+#endif
+#if !defined(KF_FLAG_DEFAULT)
+#define KF_FLAG_DEFAULT 0u
+#endif
+#if !defined(CREATE_UNICODE_ENVIRONMENT)
+#define CREATE_UNICODE_ENVIRONMENT 0x00000400u
+#endif
+#if !defined(DONT_RESOLVE_DLL_REFERENCES)
+#define DONT_RESOLVE_DLL_REFERENCES 0x00000001u
+#endif
+#if !defined(LOAD_WITH_ALTERED_SEARCH_PATH)
+#define LOAD_WITH_ALTERED_SEARCH_PATH 0x00000008u
+#endif
+#if !defined(PROCESS_QUERY_LIMITED_INFORMATION)
+#define PROCESS_QUERY_LIMITED_INFORMATION 0x1000u
+#endif
+#if !defined(SD_BOTH)
+#define SD_BOTH 2
+#endif
+#if !defined(_TRUNCATE)
+#define _TRUNCATE ((size_t)-1)
+#endif
+#if !defined(PM_REMOVE)
+#define PM_REMOVE 0x0001u
+#endif
+#if !defined(SW_RESTORE)
+#define SW_RESTORE 9
+#endif
+#if !defined(SW_SHOWNA)
+#define SW_SHOWNA 8
+#endif
+#if !defined(GW_HWNDNEXT)
+#define GW_HWNDNEXT 2u
+#endif
+#if !defined(GUI_INMOVESIZE)
+#define GUI_INMOVESIZE 0x00000002u
+#endif
+#if !defined(BI_RGB)
+#define BI_RGB 0u
+#endif
+#if !defined(SND_ASYNC)
+#define SND_ASYNC 0x0001u
+#endif
+#if !defined(SND_NODEFAULT)
+#define SND_NODEFAULT 0x0002u
+#endif
+#if !defined(SND_ALIAS)
+#define SND_ALIAS 0x00010000u
+#endif
+#if !defined(SHCNE_ASSOCCHANGED)
+#define SHCNE_ASSOCCHANGED 0x08000000u
+#endif
+#if !defined(SHCNF_IDLIST)
+#define SHCNF_IDLIST 0u
+#endif
+#if !defined(BIF_RETURNONLYFSDIRS)
+#define BIF_RETURNONLYFSDIRS 0x0001u
+#endif
+#if !defined(BIF_NEWDIALOGSTYLE)
+#define BIF_NEWDIALOGSTYLE 0x0040u
+#endif
+#if !defined(BFFM_INITIALIZED)
+#define BFFM_INITIALIZED 1u
+#endif
+#if !defined(BFFM_SETSELECTIONW)
+#define BFFM_SETSELECTIONW 0x0467u
+#endif
+#if !defined(EXCEPTION_ACCESS_VIOLATION)
+#define EXCEPTION_ACCESS_VIOLATION 0xC0000005u
+#endif
+#if !defined(JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE)
+#define JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE 0x00002000u
+#endif
+#if !defined(JobObjectExtendedLimitInformation)
+#define JobObjectExtendedLimitInformation 9
+#endif
+#if !defined(WINHTTP_DISABLE_COOKIES)
+#define WINHTTP_DISABLE_COOKIES 0x00000001u
+#endif
+#if !defined(WINHTTP_OPTION_DISABLE_FEATURE)
+#define WINHTTP_OPTION_DISABLE_FEATURE 63u
+#endif
+
+// Window styles: the WebView2 host window is the only user, and it is not
+// built here, but the constants appear in shared declarations.
+#if !defined(WS_OVERLAPPEDWINDOW)
+#define WS_OVERLAPPEDWINDOW 0x00CF0000u
+#endif
+#if !defined(WS_POPUP)
+#define WS_POPUP 0x80000000u
+#endif
+#if !defined(WS_VISIBLE)
+#define WS_VISIBLE 0x10000000u
+#endif
+#if !defined(WS_CAPTION)
+#define WS_CAPTION 0x00C00000u
+#endif
+#if !defined(WS_SYSMENU)
+#define WS_SYSMENU 0x00080000u
+#endif
+#if !defined(WS_THICKFRAME)
+#define WS_THICKFRAME 0x00040000u
+#endif
+#if !defined(WS_MINIMIZEBOX)
+#define WS_MINIMIZEBOX 0x00020000u
+#endif
+#if !defined(WS_MAXIMIZEBOX)
+#define WS_MAXIMIZEBOX 0x00010000u
+#endif
+#if !defined(WS_MAXIMIZE)
+#define WS_MAXIMIZE 0x01000000u
+#endif
+
+using PVOID = void*;
+using LPBYTE = unsigned char*;
+using HGLOBAL = void*;
+using LPITEMIDLIST = void*;
+
+struct SECURITY_ATTRIBUTES {
+	unsigned long nLength;
+	void* lpSecurityDescriptor;
+	int bInheritHandle;
+};
+
+struct COPYDATASTRUCT {
+	ULONG_PTR dwData;
+	unsigned long cbData;
+	void* lpData;
+};
+
+struct MSG {
+	HWND hwnd;
+	unsigned int message;
+	WPARAM wParam;
+	LPARAM lParam;
+	unsigned long time;
+	struct { long x, y; } pt;
+};
+
+struct WNDCLASSW {
+	unsigned int style;
+	void* lpfnWndProc;
+	int cbClsExtra;
+	int cbWndExtra;
+	HINSTANCE hInstance;
+	HANDLE hIcon;
+	HANDLE hCursor;
+	HANDLE hbrBackground;
+	const wchar_t* lpszMenuName;
+	const wchar_t* lpszClassName;
+};
+
+struct WNDCLASSEXW {
+	unsigned int cbSize;
+	unsigned int style;
+	void* lpfnWndProc;
+	int cbClsExtra;
+	int cbWndExtra;
+	HINSTANCE hInstance;
+	HANDLE hIcon;
+	HANDLE hCursor;
+	HANDLE hbrBackground;
+	const wchar_t* lpszMenuName;
+	const wchar_t* lpszClassName;
+	HANDLE hIconSm;
+};
+
+struct GUITHREADINFO {
+	unsigned long cbSize;
+	unsigned long flags;
+	HWND hwndActive;
+	HWND hwndFocus;
+	HWND hwndCapture;
+	HWND hwndMenuOwner;
+	HWND hwndMoveSize;
+	HWND hwndCaret;
+	struct { long left, top, right, bottom; } rcCaret;
+};
+
+struct BROWSEINFOW {
+	HWND hwndOwner;
+	LPITEMIDLIST pidlRoot;
+	wchar_t* pszDisplayName;
+	const wchar_t* lpszTitle;
+	unsigned int ulFlags;
+	void* lpfn;
+	LPARAM lParam;
+	int iImage;
+};
+
+#pragma pack(push, 1)
+struct BITMAPFILEHEADER {
+	unsigned short bfType;
+	unsigned long bfSize;
+	unsigned short bfReserved1;
+	unsigned short bfReserved2;
+	unsigned long bfOffBits;
+};
+#pragma pack(pop)
+
+struct BITMAPINFOHEADER {
+	unsigned long biSize;
+	long biWidth;
+	long biHeight;
+	unsigned short biPlanes;
+	unsigned short biBitCount;
+	unsigned long biCompression;
+	unsigned long biSizeImage;
+	long biXPelsPerMeter;
+	long biYPelsPerMeter;
+	unsigned long biClrUsed;
+	unsigned long biClrImportant;
+};
+
+struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
+	struct {
+		long long PerProcessUserTimeLimit;
+		long long PerJobUserTimeLimit;
+		unsigned long LimitFlags;
+		size_t MinimumWorkingSetSize;
+		size_t MaximumWorkingSetSize;
+		unsigned long ActiveProcessLimit;
+		uintptr_t Affinity;
+		unsigned long PriorityClass;
+		unsigned long SchedulingClass;
+	} BasicLimitInformation;
+	struct { unsigned long long ReadOperationCount, WriteOperationCount, OtherOperationCount,
+	                            ReadTransferCount, WriteTransferCount, OtherTransferCount; } IoInfo;
+	size_t ProcessMemoryLimit;
+	size_t JobMemoryLimit;
+	size_t PeakProcessMemoryUsed;
+	size_t PeakJobMemoryUsed;
+};
+
+// --------------------------------------------- remaining functions
+
+inline void SecureZeroMemory(void* p, size_t size)
+{
+	// Win32 guarantees the write is not optimised away; a volatile cursor does
+	// the same here.
+	volatile unsigned char* cursor = static_cast<volatile unsigned char*>(p);
+	for (size_t i = 0; i < size; i++) cursor[i] = 0;
+}
+
+inline HANDLE GetStdHandle(unsigned long which)
+{
+	if (which == STD_INPUT_HANDLE)  return pob_win_compat::FdToHandle(STDIN_FILENO);
+	if (which == STD_OUTPUT_HANDLE) return pob_win_compat::FdToHandle(STDOUT_FILENO);
+	if (which == STD_ERROR_HANDLE)  return pob_win_compat::FdToHandle(STDERR_FILENO);
+	return INVALID_HANDLE_VALUE;
+}
+
+inline int GetDiskFreeSpaceExW(const wchar_t* path, ULARGE_INTEGER* freeForCaller,
+                               ULARGE_INTEGER* total, ULARGE_INTEGER* totalFree)
+{
+	const std::string utf8 = (path != nullptr) ? pob_win_compat::WideToUtf8(path) : std::string("/");
+	struct statvfs st = {};
+	if (::statvfs(utf8.c_str(), &st) != 0) return 0;
+	const unsigned long long blockSize = (st.f_frsize != 0) ? st.f_frsize : st.f_bsize;
+	if (freeForCaller != nullptr) freeForCaller->QuadPart = blockSize * st.f_bavail;
+	if (total != nullptr)         total->QuadPart = blockSize * st.f_blocks;
+	if (totalFree != nullptr)     totalFree->QuadPart = blockSize * st.f_bfree;
+	return 1;
+}
+
+inline int CompareFileTime(const FILETIME* a, const FILETIME* b)
+{
+	auto value = [](const FILETIME* t) -> unsigned long long {
+		if (t == nullptr) return 0;
+		return (static_cast<unsigned long long>(t->dwHighDateTime) << 32) | t->dwLowDateTime;
+	};
+	const unsigned long long x = value(a), y = value(b);
+	return (x < y) ? -1 : (x > y) ? 1 : 0;
+}
+
+// Win32 stores times in UTC and converts for display. Both forms are the same
+// instant here, so the conversion is a copy; the display side already uses
+// FileTimeToSystemTime, which applies the local offset.
+inline int FileTimeToLocalFileTime(const FILETIME* in, FILETIME* out)
+{
+	if (in == nullptr || out == nullptr) return 0;
+	*out = *in;
+	return 1;
+}
+
+inline unsigned long ExpandEnvironmentStringsW(const wchar_t* input, wchar_t* output, unsigned long size)
+{
+	if (input == nullptr) return 0;
+	const std::string in = pob_win_compat::WideToUtf8(input);
+	std::string out;
+	for (size_t i = 0; i < in.size(); i++) {
+		if (in[i] != '%') { out.push_back(in[i]); continue; }
+		const size_t end = in.find('%', i + 1);
+		if (end == std::string::npos) { out.push_back(in[i]); continue; }
+		const std::string name = in.substr(i + 1, end - i - 1);
+		const char* value = std::getenv(name.c_str());
+		if (value != nullptr) out += value;
+		i = end;
+	}
+	if (output == nullptr || out.size() + 1 > size) {
+		return static_cast<unsigned long>(out.size() + 1);
+	}
+	return static_cast<unsigned long>(pob_win_compat::Utf8ToWide(out.c_str(), output, size)) + 1;
+}
+
+inline wchar_t* GetEnvironmentStringsW()
+{
+	// Win32 returns one block of "NAME=VALUE\0...\0\0". Rebuilt here from
+	// environ so the caller's parsing works unchanged.
+	extern char** environ;
+	std::string block;
+	for (char** e = environ; e != nullptr && *e != nullptr; ++e) {
+		block.append(*e);
+		block.push_back('\0');
+	}
+	block.push_back('\0');
+	wchar_t* out = static_cast<wchar_t*>(std::malloc((block.size() + 1) * sizeof(wchar_t)));
+	if (out == nullptr) return nullptr;
+	for (size_t i = 0; i < block.size(); i++) {
+		out[i] = static_cast<wchar_t>(static_cast<unsigned char>(block[i]));
+	}
+	out[block.size()] = L'\0';
+	return out;
+}
+
+inline int FreeEnvironmentStringsW(wchar_t* block) { std::free(block); return 1; }
+
+inline unsigned long GetCommandLineLengthUnused() { return 0; }
+
+inline const wchar_t* GetCommandLineW()
+{
+	// Rebuilt once from /proc or the saved argv is not available here; the one
+	// caller uses it for a diagnostic line, so an empty string is accurate
+	// rather than invented.
+	static const wchar_t empty[] = L"";
+	return empty;
+}
+
+inline unsigned long GetSystemDirectoryW(wchar_t* buffer, unsigned int size)
+{
+	// There is no system directory to point at; the caller falls back when
+	// this reports zero.
+	if (buffer != nullptr && size > 0) buffer[0] = L'\0';
+	return 0;
+}
+
+inline unsigned long GetShortPathNameW(const wchar_t* longPath, wchar_t* shortPath, unsigned long size)
+{
+	// 8.3 short paths do not exist here, and the long path is always valid
+	// where a short one would be used.
+	if (longPath == nullptr) return 0;
+	const std::string utf8 = pob_win_compat::WideToUtf8(longPath);
+	if (shortPath == nullptr || utf8.size() + 1 > size) {
+		return static_cast<unsigned long>(utf8.size() + 1);
+	}
+	return static_cast<unsigned long>(pob_win_compat::Utf8ToWide(utf8.c_str(), shortPath, size));
+}
+
+inline int AllowSetForegroundWindow(unsigned long processId) { (void)processId; return 0; }
+inline LRESULT DefWindowProcW(HWND w, unsigned int m, WPARAM wp, LPARAM lp)
+{
+	(void)w; (void)m; (void)wp; (void)lp;
+	return 0;
+}
+inline int GetGUIThreadInfo(unsigned long threadId, GUITHREADINFO* info)
+{
+	(void)threadId; (void)info;
+	return 0;
+}
+inline int PlaySoundW(const wchar_t* sound, HINSTANCE instance, unsigned long flags)
+{
+	(void)instance; (void)flags;
+	if (sound == nullptr) return 0;
+	const std::string path = pob_win_compat::WideToUtf8(sound);
+#if defined(__APPLE__)
+	return pob_win_compat::SpawnDetached("afplay", path.c_str()) ? 1 : 0;
+#else
+	return pob_win_compat::SpawnDetached("aplay", path.c_str()) ? 1 : 0;
+#endif
+}
+
+// Job objects group processes so that closing the group kills them. The POSIX
+// counterpart is the process group, which the launcher does not set up here;
+// reporting failure leaves the children it spawns unmanaged, which is the same
+// outcome as on a Windows where the job could not be created.
+inline HANDLE CreateJobObjectW(void* attributes, const wchar_t* name)
+{
+	(void)attributes; (void)name;
+	return nullptr;
+}
+inline int AssignProcessToJobObject(HANDLE job, HANDLE process)
+{
+	(void)job; (void)process;
+	return 0;
+}
+inline int SetInformationJobObject(HANDLE job, int infoClass, void* info, unsigned long length)
+{
+	(void)job; (void)infoClass; (void)info; (void)length;
+	return 0;
+}
+
+// MSVC's secure time functions: argument order is (out, in), the inverse of
+// the POSIX reentrant forms.
+inline int localtime_s(struct tm* out, const time_t* when)
+{
+	if (out == nullptr || when == nullptr) return EINVAL;
+	return ::localtime_r(when, out) != nullptr ? 0 : EINVAL;
+}
+
+inline int gmtime_s(struct tm* out, const time_t* when)
+{
+	if (out == nullptr || when == nullptr) return EINVAL;
+	return ::gmtime_r(when, out) != nullptr ? 0 : EINVAL;
+}
+
+inline int _wfreopen_s(FILE** out, const wchar_t* path, const wchar_t* mode, FILE* stream)
+{
+	if (out == nullptr) return EINVAL;
+	const std::string p = pob_win_compat::WideToUtf8(path);
+	const std::string m = pob_win_compat::WideToUtf8(mode);
+	*out = std::freopen(p.c_str(), m.c_str(), stream);
+	return *out != nullptr ? 0 : (errno != 0 ? errno : EINVAL);
+}
+
 // ------------------------------------------------------- format helpers
 
 // Win32 (MSVC): the bounds-checked wide formatter. The portable swprintf takes
@@ -2162,6 +2827,47 @@ inline int swprintf_s(wchar_t (&buffer)[N], const wchar_t* format, ...)
 	const int n = ::vswprintf(buffer, N, format, args);
 	va_end(args);
 	return n;
+}
+
+// The explicit-size form, which callers use for a heap buffer.
+inline int swprintf_s(wchar_t* buffer, size_t size, const wchar_t* format, ...)
+{
+	va_list args;
+	va_start(args, format);
+	const int n = ::vswprintf(buffer, size, format, args);
+	va_end(args);
+	return n;
+}
+
+template <size_t N>
+inline int wcscpy_s(wchar_t (&dest)[N], const wchar_t* src)
+{
+	if (src == nullptr) return EINVAL;
+	size_t i = 0;
+	for (; src[i] != L'\0' && i + 1 < N; i++) dest[i] = src[i];
+	dest[i] = L'\0';
+	return src[i] == L'\0' ? 0 : ERANGE;
+}
+
+template <size_t N>
+inline int strcpy_s(char (&dest)[N], const char* src)
+{
+	if (src == nullptr) return EINVAL;
+	size_t i = 0;
+	for (; src[i] != '\0' && i + 1 < N; i++) dest[i] = src[i];
+	dest[i] = '\0';
+	return src[i] == '\0' ? 0 : ERANGE;
+}
+
+template <size_t N>
+inline int wcsncpy_s(wchar_t (&dest)[N], const wchar_t* src, size_t count)
+{
+	if (src == nullptr) return EINVAL;
+	const size_t limit = (count == static_cast<size_t>(-1)) ? N - 1 : count;
+	size_t i = 0;
+	for (; src[i] != L'\0' && i < limit && i + 1 < N; i++) dest[i] = src[i];
+	dest[i] = L'\0';
+	return 0;
 }
 
 #endif // !_WIN32

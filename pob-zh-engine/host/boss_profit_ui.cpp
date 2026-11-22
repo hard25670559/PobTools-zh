@@ -14,6 +14,7 @@
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
+#include <filesystem>
 #include <windows.h>
 #else
 #include "../engine/common/win_compat.h"
@@ -57,7 +58,7 @@ std::string LowerAscii(std::string s)
 
 bool ReadAll(const std::wstring& path, std::string* out)
 {
-	std::ifstream f(path, std::ios::binary);
+	std::ifstream f(std::filesystem::path(path), std::ios::binary);
 	if (!f) return false;
 	std::ostringstream ss;
 	ss << f.rdbuf();
@@ -199,7 +200,7 @@ private:
 	void saveOverrides()
 	{
 		CreateDirectoryW((exeDir_ + L"PobTools").c_str(), nullptr);
-		std::ofstream f(overridesPath(), std::ios::binary | std::ios::trunc);
+		std::ofstream f(std::filesystem::path(overridesPath()), std::ios::binary | std::ios::trunc);
 		const std::string s = SerializeBossOverrides(ov_);
 		if (!f || !f.write(s.data(), (std::streamsize)s.size()))
 			PobLog::Error("bossprofit", u8"手動修改存檔失敗（PobTools\\boss_profit_ui.json）");

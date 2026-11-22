@@ -23,6 +23,7 @@
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
+#include <filesystem>
 #include <windows.h>
 #else
 #include "../engine/common/win_compat.h"
@@ -371,11 +372,11 @@ int RunFilterSelfTest(const std::wstring& exeDir)
 	// T9: rename + reference sync (real files under %TEMP%)
 	{
 		auto writeFile = [](const std::wstring& p, const std::string& content) {
-			std::ofstream o(p, std::ios::binary);
+			std::ofstream o(std::filesystem::path(p), std::ios::binary);
 			o.write(content.data(), (std::streamsize)content.size());
 		};
 		auto readFile = [](const std::wstring& p) {
-			std::ifstream in(p, std::ios::binary);
+			std::ifstream in(std::filesystem::path(p), std::ios::binary);
 			return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 		};
 		auto exists = [](const std::wstring& p) {
@@ -531,7 +532,7 @@ int RunFilterSelfTest(const std::wstring& exeDir)
 			if (!ok) {
 				rep.note("T11 skipped: could not read " + found.front().name);
 			} else {
-				std::ifstream in(found.front().path, std::ios::binary);
+				std::ifstream in(std::filesystem::path(found.front()).path, std::ios::binary);
 				std::string raw((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 				rep.check(SerializeFilter(f) == raw,
 				          "T11 real filter round-trip byte-exact", found.front().name);
@@ -1037,7 +1038,7 @@ int RunFilterSelfTest(const std::wstring& exeDir)
 	{
 		const std::wstring path = scratch + L"watch.filter";
 		auto writeFile = [](const std::wstring& p, const std::string& data) {
-			std::ofstream o(p, std::ios::binary);
+			std::ofstream o(std::filesystem::path(p), std::ios::binary);
 			o.write(data.data(), (std::streamsize)data.size());
 		};
 		auto bumpTime = [](const std::wstring& p, long long secs) {
@@ -1492,7 +1493,7 @@ int RunFilterSelfTest(const std::wstring& exeDir)
 		GetTempPathW(MAX_PATH, tb);
 		const std::wstring path = std::wstring(tb) + L"pobtools_t32_" + std::to_wstring(GetCurrentProcessId()) + L".filter";
 		{
-			std::ofstream o(path, std::ios::binary);
+			std::ofstream o(std::filesystem::path(path), std::ios::binary);
 			o << "Show # a\r\n\tClass \"Rings\"\r\n\tSetFontSize 40\r\n\r\nShow # b\r\n\tClass \"Amulets\"\r\n\tSetFontSize 40\r\n";
 		}
 		bool ok = false;
@@ -1903,7 +1904,7 @@ int RunFilterSelfTest(const std::wstring& exeDir)
 		CreateDirectoryW(dPoe1.c_str(), nullptr);
 		CreateDirectoryW(dLoc.c_str(), nullptr);
 		auto put = [](const std::wstring& path, const std::string& body) {
-			std::ofstream o(path, std::ios::binary);
+			std::ofstream o(std::filesystem::path(path), std::ios::binary);
 			o << body;
 		};
 		std::string items = "{\"entries\":{\"Alpha Ring\":\"甲戒\",\"Bravo Belt\":\"乙腰帶\"";
@@ -2697,13 +2698,13 @@ int RunFilterSelfTest(const std::wstring& exeDir)
 		const std::wstring dir = std::wstring(tb) + L"pobtools_t40c_" + std::to_wstring(GetCurrentProcessId()) + L"\\";
 		CreateDirectoryW(dir.c_str(), nullptr);
 		{
-			std::ofstream o(dir + L"aBcD12", std::ios::binary);
+			std::ofstream o(std::filesystem::path(dir + L"aBcD12"), std::ios::binary);
 			o << "#Online Item Filter\r\n#name:NeverSink-2semistr-softcore\r\n#filterVersion:8.20.2.2026.309.7\r\n"
 			     "#===========\r\n# NeverSink's Indepth Loot Filter\r\n# VERSION:  8.20.2.2026.309.7\r\n# TYPE:     2-SEMI-STRICT\r\n"
 			     "Show\r\n\tSetFontSize 40\r\n";
 		}
 		{
-			std::ofstream o(dir + L"notone", std::ios::binary);
+			std::ofstream o(std::filesystem::path(dir + L"notone"), std::ios::binary);
 			o << "Show\r\n";
 		}
 		const std::vector<OnlineFilterEntry> got = ListOnlineFiltersIn(dir);
@@ -2752,7 +2753,7 @@ int RunFilterSelfTest(const std::wstring& exeDir)
 		const FilterFile base = LoadFilter(exeDir + L"Filters\\default.filter", &ok);
 		std::string onlineText;
 		if (!onlinePath.empty()) {
-			std::ifstream in(onlinePath, std::ios::binary);
+			std::ifstream in(std::filesystem::path(onlinePath), std::ios::binary);
 			onlineText.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 		}
 		if (!ok || onlineText.empty() || !ParseOnlineHeader(onlineText).online) {
@@ -2906,7 +2907,7 @@ int RunFilterImportProbe(const std::wstring& exeDir, const std::wstring& itemFil
 
 	std::string text;
 	if (!itemFile.empty()) {
-		std::ifstream in(itemFile, std::ios::binary);
+		std::ifstream in(std::filesystem::path(itemFile), std::ios::binary);
 		text.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 	} else {
 		text = ReadClipboardUtf8(nullptr);
@@ -2972,7 +2973,7 @@ int RunFilterImportProbe(const std::wstring& exeDir, const std::wstring& itemFil
 	}
 
 	printf("%s", repText.c_str());
-	std::ofstream out(exeDir + L"filter_import_probe.txt", std::ios::binary);
+	std::ofstream out(std::filesystem::path(exeDir + L"filter_import_probe.txt"), std::ios::binary);
 	if (out) out.write(repText.data(), (std::streamsize)repText.size());
 	return rc;
 }

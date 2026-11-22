@@ -20,7 +20,9 @@
 #include <thread>
 #include <vector>
 
+#if defined(_WIN32)
 #pragma comment(lib, "dbghelp.lib")
+#endif
 
 namespace {
 

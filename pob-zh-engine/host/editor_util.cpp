@@ -7,8 +7,10 @@
 #include <shlobj.h>      // SHBrowseForFolderW
 
 #pragma comment(lib, "comdlg32.lib")
+#if defined(_WIN32)
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "ole32.lib")
+#endif
 #else
 #include "../engine/common/win_compat.h"
 #endif

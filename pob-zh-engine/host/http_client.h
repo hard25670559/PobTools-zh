@@ -5,6 +5,10 @@
 // thread. Paths must already be percent-encoded (e.g. /Traditional%20Chinese/x).
 #pragma once
 
+#if !defined(_WIN32)
+#include "../engine/common/win_compat_http.h"
+#endif
+
 #include <atomic>
 #include <functional>
 #include <string>

@@ -29,8 +29,10 @@
 
 #include <GLES2/gl2.h>
 #include <GLFW/glfw3.h>
+#if defined(_WIN32)
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
+#endif
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include <imgui.h>
 #include <imgui_internal.h>   // ImGuiContext, to read the stack depths

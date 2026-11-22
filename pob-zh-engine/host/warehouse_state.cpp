@@ -6,6 +6,7 @@
 #include <wincrypt.h>
 #else
 #include "../engine/common/win_compat.h"
+#include "../engine/common/win_compat_crypt.h"
 #endif
 
 #include <json.hpp>

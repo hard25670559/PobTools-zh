@@ -636,7 +636,17 @@ if (WIN32 OR APPLE)
     else ()
         # No WebView2 and no delay loading: the modern UI falls back to the
         # system browser here, which modern_ui_browser.cpp already implements.
-        target_link_libraries(pob-zh PRIVATE glfw unofficial::angle::libGLESv2 WebP::webpdecoder)
+        # CURL: the WinHTTP shim (engine/common/win_compat_http.h) is built on
+        # it, so the launcher needs it directly here.
+        find_package(CURL REQUIRED)
+        target_link_libraries(pob-zh PRIVATE glfw unofficial::angle::libGLESv2 WebP::webpdecoder CURL::libcurl)
+        if (APPLE)
+            # Security: the DPAPI shim (engine/common/win_compat_crypt.h) keeps
+            # the two credentials in the login keychain, which is the local
+            # equivalent of DPAPI's machine-and-user binding.
+            find_library(SECURITY_LIBRARY Security)
+            target_link_libraries(pob-zh PRIVATE ${SECURITY_LIBRARY})
+        endif ()
     endif ()
     set_target_properties(pob-zh PROPERTIES OUTPUT_NAME "pob-zh")
     install(TARGETS pob-zh RUNTIME DESTINATION ".")

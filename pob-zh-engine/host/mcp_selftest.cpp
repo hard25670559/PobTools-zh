@@ -15,7 +15,9 @@
 #else
 #include "../engine/common/win_compat.h"
 #endif
+#if defined(_WIN32)
 #include <winioctl.h>
+#endif
 #if defined(_WIN32)
 #include <shlobj.h>
 #include <knownfolders.h>

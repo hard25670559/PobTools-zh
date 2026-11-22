@@ -8,6 +8,7 @@
 #include <winhttp.h>
 #else
 #include "../engine/common/win_compat.h"
+#include "../engine/common/win_compat_http.h"
 #endif
 #include "win_util.h"
 

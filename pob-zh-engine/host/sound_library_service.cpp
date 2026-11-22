@@ -5,6 +5,7 @@
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
+#include <filesystem>
 #include <windows.h>
 #else
 #include "../engine/common/win_compat.h"
@@ -117,7 +118,7 @@ void SoundLibraryService::Init(const std::wstring& exeDir)
 	exeDir_ = exeDir;
 	folder_ = GetSoundFolder();
 	rules_.clear();
-	std::ifstream in(exeDir_ + L"Data\\sound_rules.json", std::ios::binary);
+	std::ifstream in(std::filesystem::path(exeDir_ + L"Data\\sound_rules.json"), std::ios::binary);
 	if (in) {
 		std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 		SoundRulesFromJson(text, &rules_);   // bad json -> empty rules, no crash
@@ -179,7 +180,7 @@ bool SoundLibraryService::SaveRules(std::string* err)
 	if (readOnly_) return true;   // a test run writes nothing
 	std::wstring dir = exeDir_ + L"Data";
 	CreateDirectoryW(dir.c_str(), nullptr);
-	std::ofstream o(dir + L"\\sound_rules.json", std::ios::binary);
+	std::ofstream o(std::filesystem::path(dir + L"\\sound_rules.json"), std::ios::binary);
 	if (!o) { if (err) *err = "cannot write Data\\sound_rules.json"; return false; }
 	std::string text = SoundRulesToJson(rules_);
 	o.write(text.data(), (std::streamsize)text.size());

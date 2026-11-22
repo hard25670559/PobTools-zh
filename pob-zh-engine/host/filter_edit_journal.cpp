@@ -5,6 +5,7 @@
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
+#include <filesystem>
 #include <windows.h>
 #else
 #include "../engine/common/win_compat.h"
@@ -499,7 +500,7 @@ bool JournalSave(const std::wstring& path, const EditJournal& j, std::string* er
 	}
 	const std::wstring tmp = path + L".tmp";
 	{
-		std::ofstream o(tmp, std::ios::binary | std::ios::trunc);
+		std::ofstream o(std::filesystem::path(tmp), std::ios::binary | std::ios::trunc);
 		if (!o) { if (err) *err = "cannot write " + narrow(tmp); return false; }
 		o.write(text.data(), (std::streamsize)text.size());
 		if (!o) {
@@ -519,7 +520,7 @@ bool JournalSave(const std::wstring& path, const EditJournal& j, std::string* er
 
 bool JournalLoad(const std::wstring& path, EditJournal* j)
 {
-	std::ifstream in(path, std::ios::binary);
+	std::ifstream in(std::filesystem::path(path), std::ios::binary);
 	if (!in) return false;
 	const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 	ordered_json doc;
