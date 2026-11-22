@@ -41,6 +41,9 @@
 #include "stat_selftest.h"
 #include "pob_launch.h"
 #include "pob_protocol.h"   // pob:// / pob2:// "Open in PoB" links
+#if defined(__APPLE__)
+#include "mac_app_policy.h"
+#endif
 #include "headless_proc.h" // --engine-headless / --headless-selftest
 #include "mcp_selftest.h"   // --mcp-selftest
 #include "mcp_server.h"     // --mcp
@@ -854,6 +857,20 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
 			                         narrow(arg2));
 			return 1;
 		}
+#if defined(__APPLE__)
+		// One icon in the Dock, not two.
+		//
+		// POB runs as its own process, and macOS gives every process with a
+		// window its own Dock tile -- so starting POB from the launcher put two
+		// identical tiles there. Declaring this one an accessory keeps it out
+		// of the Dock and out of the app switcher; its window still opens,
+		// takes focus and behaves normally, and the launcher's tile is the only
+		// one the user sees.
+		//
+		// Done here rather than in the bundle's Info.plist because the same
+		// executable is both programs: the launcher must keep its tile.
+		pob_mac::MakeAccessoryApp();
+#endif
 		// Publish "a POB is running against this install" for as long as this
 		// process lives, so a launcher (possibly a different one) knows not to
 		// swap engine\*.dll out from under it.

@@ -4,6 +4,9 @@
 #include "modern_ui_window.h"
 #include "error_log.h"
 #include "../translate/startup_trace.h"
+#if defined(__APPLE__)
+#include <GLFW/glfw3.h>
+#endif
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -308,7 +311,19 @@ unsigned long SpawnPobAndWait(const std::wstring& launchLua)
 	// Both ends of the wait go into the startup timeline so the child's exit and
 	// the launcher's return are on the same clock.
 	startup_trace_mark("POB child spawned (pid %lu); waiting for it to exit", (unsigned long)pi.dwProcessId);
+#if defined(__APPLE__)
+	// Keep answering the window system while we wait. A process that stops
+	// taking events is marked unresponsive, and the window just destroyed
+	// stays on screen as a dead picture until it does. Waiting in short steps
+	// and pumping between them costs nothing and keeps both honest.
+	for (;;) {
+		const unsigned long r = WaitForSingleObject(pi.hProcess, 50);
+		if (r != WAIT_TIMEOUT) break;
+		glfwPollEvents();
+	}
+#else
 	WaitForSingleObject(pi.hProcess, INFINITE);
+#endif
 	DWORD code = 0;
 	GetExitCodeProcess(pi.hProcess, &code);
 	CloseHandle(pi.hProcess);

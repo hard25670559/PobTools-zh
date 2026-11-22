@@ -245,8 +245,62 @@ inline int ResetEvent(HANDLE h)
 // Win32: waits for the handle to be signalled, or for the timeout. Only events
 // are waitable here; a wait on anything else reports failure rather than
 // pretending to have waited.
+namespace pob_win_compat {
+
+// A process handle, told apart from file and event handles by its own magic.
+struct ProcessState {
+	static constexpr unsigned int kMagic = 0x50524F31u; // "PRO1"
+	unsigned int magic = kMagic;
+	pid_t pid = -1;
+	bool reaped = false;
+	int status = 0;
+};
+
+inline ProcessState* AsProcess(HANDLE h)
+{
+	const uintptr_t v = reinterpret_cast<uintptr_t>(h);
+	if (h == nullptr || h == INVALID_HANDLE_VALUE || v < 0x10000) return nullptr;
+	auto* candidate = reinterpret_cast<ProcessState*>(h);
+	return candidate->magic == ProcessState::kMagic ? candidate : nullptr;
+}
+
+} // namespace pob_win_compat
+
 inline unsigned long WaitForSingleObject(HANDLE h, unsigned long milliseconds)
 {
+	// A process handle waits for that process to exit. Without this the
+	// launcher, which waits on POB before showing itself again, is told the
+	// wait failed, takes POB for finished and reopens itself on the spot --
+	// both windows then sit there at once.
+	if (auto* proc = pob_win_compat::AsProcess(h)) {
+		if (proc->reaped) return WAIT_OBJECT_0;
+		if (milliseconds == 0xFFFFFFFFu) {
+			int status = 0;
+			// EINTR: a signal, not an answer about the child.
+			pid_t r;
+			do { r = ::waitpid(proc->pid, &status, 0); } while (r < 0 && errno == EINTR);
+			if (r != proc->pid) return WAIT_FAILED;
+			proc->reaped = true;
+			proc->status = status;
+			return WAIT_OBJECT_0;
+		}
+		// Bounded wait: POSIX has no deadline on waitpid, so poll. 10 ms is
+		// below anything a caller times with and costs nothing while idle.
+		const auto deadline = std::chrono::steady_clock::now() +
+		                      std::chrono::milliseconds(milliseconds);
+		for (;;) {
+			int status = 0;
+			const pid_t r = ::waitpid(proc->pid, &status, WNOHANG);
+			if (r == proc->pid) {
+				proc->reaped = true;
+				proc->status = status;
+				return WAIT_OBJECT_0;
+			}
+			if (r < 0 && errno != EINTR) return WAIT_FAILED;
+			if (std::chrono::steady_clock::now() >= deadline) return WAIT_TIMEOUT;
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		}
+	}
 	auto* state = pob_win_compat::AsEvent(h);
 	if (state == nullptr) return WAIT_FAILED;
 	std::unique_lock<std::mutex> lock(state->mx);
@@ -1785,23 +1839,6 @@ struct PROCESS_INFORMATION {
 };
 
 namespace pob_win_compat {
-
-// A process handle, told apart from file and event handles by its own magic.
-struct ProcessState {
-	static constexpr unsigned int kMagic = 0x50524F31u; // "PRO1"
-	unsigned int magic = kMagic;
-	pid_t pid = -1;
-	bool reaped = false;
-	int status = 0;
-};
-
-inline ProcessState* AsProcess(HANDLE h)
-{
-	const uintptr_t v = reinterpret_cast<uintptr_t>(h);
-	if (h == nullptr || h == INVALID_HANDLE_VALUE || v < 0x10000) return nullptr;
-	auto* candidate = reinterpret_cast<ProcessState*>(h);
-	return candidate->magic == ProcessState::kMagic ? candidate : nullptr;
-}
 
 // Splits a Win32 command line the way CommandLineToArgvW does for the shapes
 // the launcher produces: a quoted program path followed by plain arguments.

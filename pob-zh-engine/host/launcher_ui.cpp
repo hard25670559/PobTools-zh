@@ -1262,7 +1262,9 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 
 	GLFWwindow* win = glfwCreateWindow(winW, winH, "PobTools", nullptr, nullptr);
 	if (!win) {
+#if !defined(__APPLE__)
 		glfwTerminate();
+#endif
 		MessageBoxW(nullptr, L"無法建立啟動器視窗。", L"PobTools", MB_ICONERROR | MB_OK);
 		return LauncherResult::Quit;
 	}
@@ -4260,7 +4262,15 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 	ImGui::DestroyContext();
 	LiveResize::Uninstall(win);
 	glfwDestroyWindow(win);
+#if defined(__APPLE__)
+	// Everything above, but not glfwTerminate. On macOS a second glfwInit after
+	// one never returns -- the launcher that returns after POB exits would hang
+	// with no window and no message. The window is gone either way; what stays
+	// is GLFW's own state, which the next round reuses (glfwInit on an already
+	// initialised GLFW is a no-op that succeeds).
+#else
 	glfwTerminate();
+#endif
 
 	if (openEditor) return LauncherResult::OpenEditor;
 	if (applyUpdate) return LauncherResult::ApplyAppUpdate;

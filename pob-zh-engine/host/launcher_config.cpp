@@ -916,7 +916,7 @@ static std::string read_pob_version(const std::wstring& installDir)
 
 static bool dir_has_launch_lua(const std::wstring& dir)
 {
-	return file_exists(dir + L"\\Launch.lua");
+	return file_exists(dir + kPathSep + L"Launch.lua");
 }
 
 // Folder-name heuristic: the PoE2 fork ships as *-PoE2-* and users keep "poe2"
@@ -1008,11 +1008,11 @@ InstallInfo DetectInstalls(const std::wstring& exeDir)
 	}
 
 	if (!info.poe1Dir.empty()) {
-		info.poe1Lua = info.poe1Dir + L"\\Launch.lua";
+		info.poe1Lua = info.poe1Dir + kPathSep + L"Launch.lua";
 		info.poe1Version = read_pob_version(info.poe1Dir);
 	}
 	if (!info.poe2Dir.empty()) {
-		info.poe2Lua = info.poe2Dir + L"\\Launch.lua";
+		info.poe2Lua = info.poe2Dir + kPathSep + L"Launch.lua";
 		info.poe2Version = read_pob_version(info.poe2Dir);
 	}
 	return info;
@@ -1021,7 +1021,7 @@ InstallInfo DetectInstalls(const std::wstring& exeDir)
 std::wstring FindPoe1Dir(const std::wstring& exeDir)
 {
 	std::wstring d = DetectInstalls(exeDir).poe1Dir;
-	if (!d.empty()) d += L'\\';
+	if (!d.empty()) d += kPathSep;
 	return d;
 }
 
