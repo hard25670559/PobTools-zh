@@ -33,6 +33,13 @@ void luaL_register (lua_State *L, const char *libname, const luaL_Reg *l){
 
 #else 
 
+/* LuaJIT reports LUA_VERSION_NUM 501 but still ships the 5.2 additions:
+** lauxlib.h declares luaL_setfuncs and the library defines it, so defining it
+** again here is a duplicate symbol. MSVC's linker picks one silently; Apple's
+** refuses, which is how this surfaced. LUA_LJDIR is LuaJIT's own config macro,
+** reached through lua.h. */
+#if !defined(LUA_LJDIR)
+
 void luaL_setfuncs (lua_State *L, const luaL_Reg *l, int nup){
   luaL_checkstack(L, nup, "too many upvalues");
   for (; l->name != NULL; l++) {  /* fill the table with given functions */
@@ -44,6 +51,8 @@ void luaL_setfuncs (lua_State *L, const luaL_Reg *l, int nup){
   }
   lua_pop(L, nup);  /* remove upvalues */
 }
+
+#endif /* !LUA_LJDIR */
 
 void lua_rawgetp(lua_State *L, int index, const void *p){
   index = lua_absindex(L, index);

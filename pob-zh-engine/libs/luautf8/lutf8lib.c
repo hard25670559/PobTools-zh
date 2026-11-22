@@ -1,6 +1,7 @@
 /* vim: set ft=c nu et sw=2 fdc=2 fdm=syntax : */
 #define LUA_LIB
 #include <lua.h>
+#include <limits.h>
 #include <lauxlib.h>
 #include <lualib.h>
 
