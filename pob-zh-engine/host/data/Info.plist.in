@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>zh_TW</string>
+	<key>CFBundleExecutable</key>
+	<string>pob-zh</string>
+	<key>CFBundleIdentifier</key>
+	<string>tw.pobtools.launcher</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>PobTools</string>
+	<key>CFBundleDisplayName</key>
+	<string>PobTools</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@POBTOOLS_VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@POBTOOLS_VERSION@</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>11.0</string>
+	<!-- The launcher draws with OpenGL ES through ANGLE, which needs a window
+	     server; it is not a background agent. -->
+	<key>LSBackgroundOnly</key>
+	<false/>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<!-- The "Open in PoB" links the page and the trade site produce. On Windows
+	     these schemes are registered in the registry at runtime; here they are
+	     declared by the bundle, which is why the runtime registration path is
+	     not built on this platform (see host/pob_protocol.cpp). -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>Path of Building build link</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>pob</string>
+				<string>pob2</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

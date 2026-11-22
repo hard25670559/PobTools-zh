@@ -16,6 +16,23 @@ list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 
 include(${PROJECT_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake)
 
+# macOS app bundle.
+#
+# Every install destination in this file is a relative path ("engine", "Data",
+# "Fonts", "."), and the launcher finds its resources relative to its own
+# executable. Pointing the install root at Contents/MacOS therefore lays the
+# whole tree out correctly inside a bundle without touching a single install
+# rule -- the layout the program expects and the layout macOS expects line up.
+#
+# Configure with -DPOBTOOLS_NO_BUNDLE=ON for a plain directory install instead.
+if (APPLE AND NOT POBTOOLS_NO_BUNDLE)
+    set(POBTOOLS_BUNDLE_NAME "PobTools.app")
+    set(CMAKE_INSTALL_PREFIX
+        "${CMAKE_INSTALL_PREFIX}/${POBTOOLS_BUNDLE_NAME}/Contents/MacOS"
+        CACHE PATH "Install root (inside the app bundle)" FORCE)
+    message(STATUS "pob-zh: installing into ${POBTOOLS_BUNDLE_NAME}")
+endif ()
+
 set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION "engine")
 include(InstallRequiredSystemLibraries)
 add_subdirectory(dep/glm)
@@ -303,7 +320,11 @@ target_link_libraries(SimpleGraphic
 if (WIN32)
     install(FILES $<TARGET_RUNTIME_DLLS:SimpleGraphic> DESTINATION "engine")
 endif ()
-install(TARGETS SimpleGraphic RUNTIME DESTINATION "engine")
+# RUNTIME for Windows DLLs, LIBRARY for the dylibs this platform builds:
+# both land where the loader looks, beside the executable tree.
+install(TARGETS SimpleGraphic
+        RUNTIME DESTINATION "engine"
+        LIBRARY DESTINATION "engine")
 
 # PoeCharm: engine-owned runtime CJK patch script, loaded by the engine into
 # POB's Lua state after OnInit. Ships in engine/ (never the POB folder).
@@ -659,6 +680,21 @@ if (WIN32 OR APPLE)
     endif ()
     set_target_properties(pob-zh PROPERTIES OUTPUT_NAME "pob-zh")
     install(TARGETS pob-zh RUNTIME DESTINATION ".")
+    if (APPLE AND NOT POBTOOLS_NO_BUNDLE)
+        # Contents/Info.plist, one level up from Contents/MacOS.
+        set(POBTOOLS_VERSION "${PROJECT_VERSION}")
+        if (NOT POBTOOLS_VERSION)
+            set(POBTOOLS_VERSION "1.0")
+        endif ()
+        configure_file("${CMAKE_CURRENT_SOURCE_DIR}/host/data/Info.plist.in"
+                       "${CMAKE_CURRENT_BINARY_DIR}/Info.plist" @ONLY)
+        install(FILES "${CMAKE_CURRENT_BINARY_DIR}/Info.plist" DESTINATION "..")
+        # The dylibs sit beside the executable, so this is where they are
+        # looked up from -- no install_name rewriting needed.
+        set_target_properties(pob-zh PROPERTIES
+            INSTALL_RPATH "@executable_path"
+            BUILD_WITH_INSTALL_RPATH FALSE)
+    endif ()
     # Bundled item-name -> icon art-path map (generated from RePoE).
     install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/host/data/icon_paths.json" DESTINATION "Data")
     # Complete Traditional-Chinese item dataset (repoe-fork: names + class + tags).
@@ -736,7 +772,11 @@ target_link_libraries(lcurl
     LuaJIT::LuaJIT
 )
 
-install(TARGETS lcurl RUNTIME DESTINATION "engine")
+# RUNTIME for Windows DLLs, LIBRARY for the dylibs this platform builds:
+# both land where the loader looks, beside the executable tree.
+install(TARGETS lcurl
+        RUNTIME DESTINATION "engine"
+        LIBRARY DESTINATION "engine")
 # TARGET_RUNTIME_DLLS is empty on non-Windows; install(FILES "") errors.
 if (WIN32)
     install(FILES $<TARGET_RUNTIME_DLLS:lcurl> DESTINATION "engine")
@@ -764,7 +804,11 @@ target_link_libraries(lua-utf8
     LuaJIT::LuaJIT
 )
 
-install(TARGETS lua-utf8 RUNTIME DESTINATION "engine")
+# RUNTIME for Windows DLLs, LIBRARY for the dylibs this platform builds:
+# both land where the loader looks, beside the executable tree.
+install(TARGETS lua-utf8
+        RUNTIME DESTINATION "engine"
+        LIBRARY DESTINATION "engine")
 # TARGET_RUNTIME_DLLS is empty on non-Windows; install(FILES "") errors.
 if (WIN32)
     install(FILES $<TARGET_RUNTIME_DLLS:lua-utf8> DESTINATION "engine")
@@ -808,7 +852,11 @@ if (WIN32)
 endif ()
 
 set_target_properties( luasocket PROPERTIES OUTPUT_NAME "socket" ) 
-install(TARGETS luasocket RUNTIME DESTINATION "engine")
+# RUNTIME for Windows DLLs, LIBRARY for the dylibs this platform builds:
+# both land where the loader looks, beside the executable tree.
+install(TARGETS luasocket
+        RUNTIME DESTINATION "engine"
+        LIBRARY DESTINATION "engine")
 # TARGET_RUNTIME_DLLS is empty on non-Windows; install(FILES "") errors.
 if (WIN32)
     install(FILES $<TARGET_RUNTIME_DLLS:luasocket> DESTINATION "engine")
@@ -828,7 +876,11 @@ target_link_libraries(lzip
     ZLIB::ZLIB
 )
 
-install(TARGETS lzip RUNTIME DESTINATION "engine")
+# RUNTIME for Windows DLLs, LIBRARY for the dylibs this platform builds:
+# both land where the loader looks, beside the executable tree.
+install(TARGETS lzip
+        RUNTIME DESTINATION "engine"
+        LIBRARY DESTINATION "engine")
 # TARGET_RUNTIME_DLLS is empty on non-Windows; install(FILES "") errors.
 if (WIN32)
     install(FILES $<TARGET_RUNTIME_DLLS:lzip> DESTINATION "engine")
