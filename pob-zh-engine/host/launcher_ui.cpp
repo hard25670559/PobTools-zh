@@ -1088,14 +1088,7 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 		glfwGetMonitorContentScale(monitor, &sx, &sy);
 		dpiScale = sx > 0.0f ? sx : 1.0f;
 	}
-	// The window may well open on another display than the primary one; the
-	// main loop corrects this once the window exists (see HoldLayerScale).
 	float scale = dpiScale * LauncherZoom(cfg.fontSize);
-	// How many pixels the display puts in a point. The faces are rasterised at
-	// `scale * fontDensity` and laid out at `scale`, so text keeps its size and
-	// gains detail where the display has it to show (macOS only: elsewhere a
-	// window is measured in pixels already and `scale` covers it).
-	float fontDensity = 1.0f;
 
 	// Tabbed window mode: this window becomes the container POB and the tools are
 	// docked into. Decided here because the two modes have different default and
@@ -1347,7 +1340,7 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 	// later). Until then a character outside the string tables -- a build name in
 	// a tab title, say -- draws as '?', and corrects itself on the swap.
 	std::shared_ptr<const FontBuildInput> fontInput = PrepareFontInput(
-	    ResolveFontPath(exeDir, cfg.fontFile), atlasTexts, strOverlays, scale * fontDensity, glMaxTex,
+	    ResolveFontPath(exeDir, cfg.fontFile), atlasTexts, strOverlays, scale, glMaxTex,
 	    FallbackFontPaths(exeDir, cfg.fontFile), cfg.locale == L"ko-KR");
 	FontAtlasWorker fontWorker;
 	fontWorker.Start(fontInput);
@@ -1867,7 +1860,7 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 			ImGui_ImplOpenGL3_DestroyFontsTexture();
 			ImGui::GetIO().Fonts->Clear();
 			fontInput = PrepareFontInput(ResolveFontPath(exeDir, cfg.fontFile),
-			                             atlasTexts, strOverlays, scale * fontDensity, glMaxTex,
+			                             atlasTexts, strOverlays, scale, glMaxTex,
 			                             FallbackFontPaths(exeDir, cfg.fontFile), cfg.locale == L"ko-KR");
 			fonts = LoadFonts(ImGui::GetIO().Fonts, fontInput, FontScope::Full);
 			localeDrawable = ProbeLocaleCoverage(fonts, strStore, &localeMissing);
@@ -1941,21 +1934,7 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 #if defined(__APPLE__)
 		// Before the frame is built, so everything derived from the window's
 		// size this frame is derived from the right one.
-		{
-			const double layerScale = pob_apple::HoldLayerScale(win);
-			// Carrying the window to a display of another density leaves the
-			// faces built for the old one and drawn at the new one's size:
-			// legible but soft. Rebuild them at the new density.
-			//
-			// Only the faces. A window here is measured in points, not pixels,
-			// so the interface itself must not change size -- FontGlobalScale
-			// below takes the extra resolution back out of the layout.
-			if (layerScale > 0.125 && layerScale < 8.0 && (float)layerScale != fontDensity) {
-				fontDensity = (float)layerScale;
-				ImGui::GetIO().FontGlobalScale = 1.0f / fontDensity;
-				fontChanged = true;
-			}
-		}
+		pob_apple::HoldLayerScale(win);
 #endif
 		ImGui_ImplOpenGL3_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
