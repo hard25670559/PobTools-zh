@@ -766,6 +766,13 @@ bool sys_main_c::RunOneFrame()
 			glfwPollEvents();
 		}
 		auto wnd = (GLFWwindow*)video->GetWindowHandle();
+		// Claim the drawing context for this engine's own window.
+		//
+		// Bound once at window creation is enough while a process runs one
+		// POB. With several, whichever drew last still holds it and the others
+		// draw into that one's window -- on screen, one POB with a picture and
+		// the rest black. Each frame says which window it is for.
+		glfwMakeContextCurrent(wnd);
 		if (glfwWindowShouldClose(wnd)) {
 			Exit();
 			return false;
