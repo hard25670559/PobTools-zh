@@ -8,6 +8,25 @@
 #endif
 #include <string>
 
+// The separator paths are normalised to before they are compared, stored or
+// shown. Windows accepts both and writes '\\'; everywhere else '/' is the only
+// one the system understands, and the only one a path should be shown as.
+#if defined(_WIN32)
+constexpr wchar_t kPathSep = L'\\';
+constexpr wchar_t kPathSepOther = L'/';
+#else
+constexpr wchar_t kPathSep = L'/';
+constexpr wchar_t kPathSepOther = L'\\';
+#endif
+
+// Rewrites every separator to the platform's own.
+inline std::wstring native_seps(std::wstring p)
+{
+	for (wchar_t& c : p)
+		if (c == kPathSepOther) c = kPathSep;
+	return p;
+}
+
 inline std::string narrow(const std::wstring& w)
 {
 	if (w.empty()) return std::string();

@@ -23,14 +23,16 @@ namespace {
 
 std::wstring with_slash(std::wstring d)
 {
-	if (!d.empty() && d.back() != L'\\' && d.back() != L'/') d += L'\\';
+	if (!d.empty() && d.back() != L'\\' && d.back() != L'/') d += kPathSep;
 	return d;
 }
 
 std::wstring no_slash(std::wstring d)
 {
-	for (wchar_t& c : d) if (c == L'/') c = L'\\';
-	while (d.size() > 3 && d.back() == L'\\') d.pop_back(); // keep "C:\"
+	d = native_seps(std::move(d));
+	// Keep the root itself: "C:\" on Windows, "/" elsewhere.
+	const size_t floor = kPathSep == L'\\' ? 3u : 1u;
+	while (d.size() > floor && d.back() == kPathSep) d.pop_back();
 	return d;
 }
 
@@ -153,7 +155,7 @@ std::wstring PobBuildDir(const std::wstring& pobDir)
 				return no_slash(widen(xml_unescape(misc.substr(a + strlen(key), b - a - strlen(key)))));
 		}
 	}
-	return base + L"\\Builds";
+	return base + kPathSep + L"Builds";
 }
 
 BuildCopyStats ImportBuildTree(const std::wstring& srcDir, const std::wstring& dstDir)

@@ -22,6 +22,7 @@
 
 #include "hash_sha256.h"
 #include "launcher_config.h"
+#include "win_util.h"   // native_seps: the platform's own path separator
 
 namespace {
 
@@ -453,19 +454,21 @@ int RunMigrateSelfTest(const std::wstring& exeDir)
 		std::wstring c = Case(L"i11");
 		std::wstring pob = J(c, L"pob");
 		MkDirs(pob);
-		check(u8"I11a 沒有 Settings.xml 時回 <pobDir>\\Builds", PobBuildDir(pob) == pob + L"\\Builds", Narrow(PobBuildDir(pob)));
+		// native_seps: a path is written with the platform's own separator, and
+		// that is what PobBuildDir hands back.
+		check(u8"I11a 沒有 Settings.xml 時回 <pobDir>\\Builds", PobBuildDir(pob) == native_seps(pob + L"\\Builds"), Narrow(PobBuildDir(pob)));
 
 		std::wstring custom = J(c, L"custom_builds");
 		WriteFileBytes(J(pob, L"Settings.xml"), SettingsXml(custom));
-		check(u8"I11b Settings.xml 的 Misc buildPath 生效(無尾端分隔)", PobBuildDir(pob) == custom, Narrow(PobBuildDir(pob)));
+		check(u8"I11b Settings.xml 的 Misc buildPath 生效(無尾端分隔)", PobBuildDir(pob) == native_seps(custom), Narrow(PobBuildDir(pob)));
 
 		std::wstring pob2 = J(c, L"pob2");
 		WriteFileBytes(J(pob2, L"Settings.xml"), SettingsXml(custom + L"\\"));
-		check(u8"I11c buildPath 帶尾端反斜線時回傳去除尾端分隔", PobBuildDir(pob2) == custom, Narrow(PobBuildDir(pob2)));
+		check(u8"I11c buildPath 帶尾端反斜線時回傳去除尾端分隔", PobBuildDir(pob2) == native_seps(custom), Narrow(PobBuildDir(pob2)));
 
 		std::wstring pob3 = J(c, L"pob3");
 		WriteFileBytes(J(pob3, L"Settings.xml"), SettingsXml(L""));
-		check(u8"I11d buildPath 為空字串時回 <pobDir>\\Builds", PobBuildDir(pob3) == pob3 + L"\\Builds", Narrow(PobBuildDir(pob3)));
+		check(u8"I11d buildPath 為空字串時回 <pobDir>\\Builds", PobBuildDir(pob3) == native_seps(pob3 + L"\\Builds"), Narrow(PobBuildDir(pob3)));
 
 		// 匯入時寫進自訂路徑,不是 <POB>\Builds
 		std::wstring ours = J(c, L"ours"), old = J(c, L"old");

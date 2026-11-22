@@ -42,9 +42,9 @@ static std::wstring with_trailing_sep(std::wstring p)
 {
 	while (!p.empty() && (p.front() == L' ' || p.front() == L'"')) p.erase(p.begin());
 	while (!p.empty() && (p.back() == L' ' || p.back() == L'"')) p.pop_back();
-	for (wchar_t& c : p) if (c == L'/') c = L'\\';
-	while (p.size() > 1 && p.back() == L'\\' && p[p.size() - 2] == L'\\') p.pop_back();
-	if (!p.empty() && p.back() != L'\\') p.push_back(L'\\');
+	p = native_seps(std::move(p));
+	while (p.size() > 1 && p.back() == kPathSep && p[p.size() - 2] == kPathSep) p.pop_back();
+	if (!p.empty() && p.back() != kPathSep) p.push_back(kPathSep);
 	return p;
 }
 
@@ -496,7 +496,7 @@ static int count_json(const std::wstring& dir)
 
 std::wstring BuiltinDictDir(const std::wstring& exeDir, DictSlot slot)
 {
-	return exeDir + L"Data\\" + DictSlotFolder(slot) + L"\\";
+	return native_seps(exeDir + L"Data\\" + DictSlotFolder(slot) + L"\\");
 }
 
 // Every <locale>\meta.json directly under `dir`, with its *.json count.
@@ -504,7 +504,7 @@ static std::vector<std::pair<std::string, int>> locales_in(const std::wstring& d
 {
 	std::vector<std::pair<std::string, int>> out;
 	for (const std::wstring& loc : subdirs_of(dir)) {
-		const std::wstring leaf = dir + loc + L"\\";
+		const std::wstring leaf = dir + loc + kPathSep;
 		if (file_exists(leaf + L"meta.json"))
 			out.push_back({ narrow(loc), count_json(leaf) });
 	}
@@ -539,11 +539,11 @@ DictDirInfo ResolveDictDir(const std::wstring& exeDir, DictSlot slot, const std:
 			info.status = DataDirStatus::WrongShape;
 			std::wstring up = path;
 			if (up.size() > 1) up.pop_back();                       // drop trailing '\'
-			const size_t cut = up.find_last_of(L'\\');
+			const size_t cut = up.find_last_of(kPathSep);
 			if (cut != std::wstring::npos) info.suggestion = up.substr(0, cut + 1);
-		} else if (!locales_in(path + DictSlotFolder(slot) + L"\\").empty()) {
+		} else if (!locales_in(path + DictSlotFolder(slot) + kPathSep).empty()) {
 			info.status = DataDirStatus::TooShallow;
-			info.suggestion = path + DictSlotFolder(slot) + L"\\";
+			info.suggestion = path + DictSlotFolder(slot) + kPathSep;
 		} else {
 			info.status = DataDirStatus::NoDictionaries;
 		}
@@ -555,8 +555,8 @@ DictDirInfo ResolveDictDir(const std::wstring& exeDir, DictSlot slot, const std:
 	// missing with no error anywhere.
 	for (const auto& f : info.found) {
 		const std::wstring loc = widen(f.first);
-		std::vector<std::string> mine = load_order_of(path + loc + L"\\meta.json");
-		for (const std::string& name : load_order_of(builtin + loc + L"\\meta.json")) {
+		std::vector<std::string> mine = load_order_of(path + loc + kPathSep + L"meta.json");
+		for (const std::string& name : load_order_of(builtin + loc + kPathSep + L"meta.json")) {
 			bool have = false;
 			for (const std::string& m : mine) if (m == name) { have = true; break; }
 			if (!have) info.staleLoadOrder.push_back(f.first + ": " + name);
@@ -1726,7 +1726,9 @@ int RunLauncherConfigSelfTest(const std::wstring& exeDir)
 	// T18..T25 -- ResolveDictDir against synthetic folders: every failure mode
 	// must land on the built-in folder, never leave POB without translations.
 	{
-		const std::wstring box = std::wstring(tmp) + L"pobtools_dd_st\\";
+		// native_seps: on this platform a path is written with '/', and that is
+		// what the resolver hands back, so the expectations must say the same.
+		const std::wstring box = native_seps(std::wstring(tmp) + L"pobtools_dd_st\\");
 		auto rmtree = [](const std::wstring& d) { remove_tree(d); };
 		auto mkdir_p = [](const std::wstring& d) { CreateDirectoryW(d.c_str(), nullptr); };
 		auto put = [](const std::wstring& p, const std::string& body) {
@@ -1747,8 +1749,8 @@ int RunLauncherConfigSelfTest(const std::wstring& exeDir)
 		mkdir_p(box + L"exe\\Data\\poe1\\zh-rTW");
 		put(box + L"exe\\Data\\poe1\\zh-rTW\\meta.json",
 		    "{\"load_order\":[\"a.json\",\"b.json\"]}");
-		const std::wstring exe = box + L"exe\\";
-		const std::wstring builtin1 = exe + L"Data\\poe1\\";
+		const std::wstring exe = native_seps(box + L"exe\\");
+		const std::wstring builtin1 = native_seps(exe + L"Data\\poe1\\");
 
 		// a usable external copy of poe1 whose meta.json predates b.json
 		mkdir_p(box + L"ext");
@@ -1763,8 +1765,8 @@ int RunLauncherConfigSelfTest(const std::wstring& exeDir)
 		// Each slot has its own built-in folder -- this is the whole point of
 		// splitting them, so it is asserted rather than assumed.
 		check("T18b each slot resolves to its own built-in folder",
-		      ResolveDictDir(exe, DictSlot::Poe2, L"").root == exe + L"Data\\poe2\\" &&
-		          ResolveDictDir(exe, DictSlot::Launcher, L"").root == exe + L"Data\\launcher\\");
+		      ResolveDictDir(exe, DictSlot::Poe2, L"").root == native_seps(exe + L"Data\\poe2\\") &&
+		          ResolveDictDir(exe, DictSlot::Launcher, L"").root == native_seps(exe + L"Data\\launcher\\"));
 
 		DictDirInfo miss = ResolveDictDir(exe, DictSlot::Poe1, box + L"no_such_folder");
 		check("T19 missing folder falls back to built-in and says Missing",
@@ -1779,19 +1781,19 @@ int RunLauncherConfigSelfTest(const std::wstring& exeDir)
 		DictDirInfo deep = ResolveDictDir(exe, DictSlot::Poe1, box + L"ext\\zh-rTW");
 		check("T21 pointing at the locale folder reports WrongShape and suggests going up",
 		      deep.status == DataDirStatus::WrongShape && deep.root == builtin1 &&
-		          deep.suggestion == box + L"ext\\",
+		          deep.suggestion == native_seps(box + L"ext\\"),
 		      narrow(deep.suggestion));
 
 		// One level too SHALLOW: the user picked the Data folder, which holds poe1\.
 		DictDirInfo shallow = ResolveDictDir(exe, DictSlot::Poe1, exe + L"Data");
 		check("T21b pointing at the Data folder reports TooShallow and suggests going down",
 		      shallow.status == DataDirStatus::TooShallow && shallow.root == builtin1 &&
-		          shallow.suggestion == exe + L"Data\\poe1\\",
+		          shallow.suggestion == native_seps(exe + L"Data\\poe1\\"),
 		      narrow(shallow.suggestion));
 
 		DictDirInfo ok = ResolveDictDir(exe, DictSlot::Poe1, box + L"ext");
 		check("T22 a correctly shaped external copy is used",
-		      ok.status == DataDirStatus::External && ok.root == box + L"ext\\" &&
+		      ok.status == DataDirStatus::External && ok.root == native_seps(box + L"ext\\") &&
 		          ok.found.size() == 1 && ok.found[0].first == "zh-rTW" && ok.found[0].second == 2,
 		      ok.found.empty() ? "none found"
 		                       : (ok.found[0].first + " n=" + std::to_string(ok.found[0].second)));
