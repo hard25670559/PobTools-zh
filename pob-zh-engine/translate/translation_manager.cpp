@@ -554,10 +554,37 @@ static bool is_glossary_candidate(const std::string &key) {
 }
 
 
+/* A path this file can hand to std::fstream / fopen.
+**
+** Dictionary paths are assembled Windows-style, with '\\' between segments.
+** std::fstream and fopen go straight to the platform, which outside Windows
+** does not treat '\\' as a separator at all: the whole string becomes one
+** file name and nothing opens. Everything here that touches the filesystem
+** directly goes through this. */
+static std::string fs_open_path(const std::string &p) {
+#if defined(_WIN32)
+    return p;
+#else
+    std::string out = p;
+    for (char &c : out) {
+        if (c == '\\') c = '/';
+    }
+    return out;
+#endif
+}
+
 static std::string get_exe_directory() {
     char path[MAX_PATH];
     GetModuleFileNameA(nullptr, path, MAX_PATH);
+    /* Both separators: the path comes back in the platform's own spelling, and
+    ** looking only for '\\' leaves the executable's own NAME on the end
+    ** elsewhere -- every dictionary path built from this then points at a
+    ** folder that cannot exist, and the translations silently never load. */
     char *lastSlash = strrchr(path, '\\');
+    char *lastFwd = strrchr(path, '/');
+    if (lastFwd != nullptr && (lastSlash == nullptr || lastFwd > lastSlash)) {
+        lastSlash = lastFwd;
+    }
     if (lastSlash) {
         *(lastSlash + 1) = '\0';
     }
@@ -1174,7 +1201,7 @@ static std::string determine_locale() {
 
     /* 2. Parse Data/Translate.json for first entry's "value" field */
     std::string jsonPath = get_exe_directory() + "Data\\Translate.json";
-    std::ifstream file(jsonPath);
+    std::ifstream file(fs_open_path(jsonPath));
     if (file.is_open()) {
         std::string content((std::istreambuf_iterator<char>(file)),
                              std::istreambuf_iterator<char>());
@@ -1203,7 +1230,7 @@ static std::string determine_locale() {
 static int load_json_id_dict(const std::string &filepath,
                              std::unordered_map<std::string, std::string> &sink,
                              const std::string &source) {
-    std::ifstream file(filepath, std::ios::binary);
+    std::ifstream file(fs_open_path(filepath), std::ios::binary);
     if (!file.is_open()) return 0;
     std::string raw((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     file.close();
@@ -1312,7 +1339,7 @@ static std::string stat_file_basename(std::string s) {
 }
 
 static int load_json_stat_dict(const std::string &filepath) {
-    std::ifstream file(filepath, std::ios::binary);
+    std::ifstream file(fs_open_path(filepath), std::ios::binary);
     if (!file.is_open()) return 0;
     std::string raw((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     file.close();
@@ -1547,7 +1574,7 @@ static int load_json_stat_dict(const std::string &filepath) {
 /* stat_wrappers.json: { "entries": { "<English with one {0}>": "<Chinese>" } }.
 ** Never merged; feeds s_stat_wrappers only. */
 static int load_json_stat_wrappers(const std::string &filepath) {
-    std::ifstream file(filepath, std::ios::binary);
+    std::ifstream file(fs_open_path(filepath), std::ios::binary);
     if (!file.is_open()) return 0;
     std::string raw((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     file.close();
@@ -1600,7 +1627,7 @@ static std::vector<std::string> group_split_lines(const std::string &s) {
 }
 
 static int load_json_group_catalog(const std::string &filepath) {
-    std::ifstream file(filepath, std::ios::binary);
+    std::ifstream file(fs_open_path(filepath), std::ios::binary);
     if (!file.is_open()) return 0;
     std::string raw((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     file.close();
@@ -1736,7 +1763,7 @@ static int load_json_translations(const std::string &filepath, bool is_base_item
     int twin_skipped = 0, line_skipped = 0;
     std::unordered_set<std::string> eo_hit;       /* exact_only keys that are keys of this file */
     int eo_twins = 0;
-    std::ifstream file(filepath, std::ios::binary);
+    std::ifstream file(fs_open_path(filepath), std::ios::binary);
     if (!file.is_open()) return 0;
     /* 整檔讀進記憶體再解析:nlohmann 走 istream 是逐字元取,7 MB 的 stats.json
     ** 差了一倍。內容完全相同(binary 開檔,BOM 由 lexer 自己跳)。 */
@@ -2072,7 +2099,7 @@ static bool load_json_meta(const std::string &filepath,
                            std::vector<std::string> &source_only,
                            std::vector<std::string> &source_dicts,
                            bool &source_lookup) {
-    std::ifstream file(filepath, std::ios::binary);
+    std::ifstream file(fs_open_path(filepath), std::ios::binary);
     if (!file.is_open()) return false;
 
     njson doc;
@@ -2139,7 +2166,7 @@ static bool load_json_meta(const std::string &filepath,
 }
 
 static bool load_json_item_metadata(const std::string &filepath) {
-    std::ifstream file(filepath, std::ios::binary);
+    std::ifstream file(fs_open_path(filepath), std::ios::binary);
     if (!file.is_open()) return false;
 
     njson doc;
@@ -2241,7 +2268,7 @@ static bool load_json_item_metadata(const std::string &filepath) {
 }
 
 static bool load_json_synonyms(const std::string &filepath) {
-    std::ifstream file(filepath, std::ios::binary);
+    std::ifstream file(fs_open_path(filepath), std::ios::binary);
     if (!file.is_open()) return false;
 
     njson doc;
@@ -2332,7 +2359,7 @@ static bool load_json_synonyms(const std::string &filepath) {
 using KeyLists = std::unordered_map<std::string, std::unordered_set<std::string>>;
 static int load_json_key_lists(const std::string &filepath, const char *name, const char *ignored,
                                KeyLists &out) {
-    std::ifstream file(filepath, std::ios::binary);
+    std::ifstream file(fs_open_path(filepath), std::ios::binary);
     if (!file.is_open()) return 0;
     njson doc;
     try {
@@ -2942,7 +2969,7 @@ static void log_translation_miss(const char *tag, const std::string &text) {
         const char *env = win_env("POB_TR_LOG", envbuf, sizeof(envbuf));
         if (!(env && env[0] == '0')) {
             std::string path = get_exe_directory() + "translate_misses.log";
-            s_fp = fopen(path.c_str(), "wb"); /* truncate: latest session only */
+            s_fp = fopen(fs_open_path(path).c_str(), "wb"); /* truncate: latest session only */
             if (s_fp) {
                 fprintf(s_fp, "# untranslated strings (locale=%s) - unique per session, POB_TR_LOG=0 to disable\n",
                         s_locale.c_str());
