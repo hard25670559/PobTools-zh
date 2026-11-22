@@ -9,7 +9,11 @@
 ** Locale: env POB_LOCALE, else the first entry of Data/Translate.json, else passthrough.
 */
 
+#if defined(_WIN32)
 #include <windows.h>
+#else
+#include "common/win_compat.h"
+#endif
 #include <cstdio>
 #include <cstring>
 #include <cctype>

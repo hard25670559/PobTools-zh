@@ -1,9 +1,13 @@
 #include "pob_frame_cap.h"
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <mmsystem.h>
 #pragma comment(lib, "winmm.lib")
+#else
+#include "common/win_compat.h"
+#endif
 
 namespace PobFrameCap {
 
@@ -50,6 +54,7 @@ void PreciseSleep(double seconds)
 {
 	if (seconds <= 0.0) return;
 	if (seconds > 1.0) seconds = 1.0; // a cap never asks for more; guard against a bad clock
+#if defined(_WIN32)
 	static thread_local HANDLE timer = [] {
 		HANDLE h = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
 		return h; // null on systems without high-resolution timers
@@ -65,6 +70,11 @@ void PreciseSleep(double seconds)
 	timeBeginPeriod(1);
 	Sleep((DWORD)(seconds * 1000.0 + 0.5));
 	timeEndPeriod(1);
+#else
+	// No timer object and no period to raise: a POSIX sleep already honours
+	// sub-millisecond requests, which is the whole reason for the dance above.
+	std::this_thread::sleep_for(std::chrono::duration<double>(seconds));
+#endif
 }
 
 } // namespace PobFrameCap

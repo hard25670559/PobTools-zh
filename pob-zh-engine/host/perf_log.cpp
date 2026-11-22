@@ -3,10 +3,21 @@
 #include "app_version.h"
 #include "error_log.h"
 
+#if !defined(_WIN32)
+#include <mach/mach.h>
+#include <sys/sysctl.h>
+#include <thread>
+#endif
+
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <psapi.h>
 #pragma comment(lib, "psapi.lib")
+#else
+#include "common/win_compat.h"
+#include "common/win_compat_file.h"
+#endif
 
 #include <algorithm>
 #include <cstdio>
@@ -439,6 +450,7 @@ void SetPathForTest(const std::wstring& path)
 void WindowFacts(void* hwndPtr, bool& minimized, bool& occluded)
 {
 	minimized = occluded = false;
+#if defined(_WIN32)
 	HWND hwnd = (HWND)hwndPtr;
 	if (!hwnd) return;
 	minimized = IsIconic(hwnd) != 0;
@@ -448,10 +460,19 @@ void WindowFacts(void* hwndPtr, bool& minimized, bool& occluded)
 	RECT me{}, other{};
 	if (!GetWindowRect(hwnd, &me) || !GetWindowRect(fg, &other)) return;
 	occluded = other.left <= me.left && other.top <= me.top && other.right >= me.right && other.bottom >= me.bottom;
+#else
+	// These two facts exist to let the log drop its sampling rate for a window
+	// nobody is looking at. Asking whether some *other* window covers this one
+	// has no portable form -- and the caller hands over a GLFW window, not
+	// something the platform can be asked about -- so both stay false and the
+	// log keeps its normal rate instead of guessing.
+	(void)hwndPtr;
+#endif
 }
 
 std::string OsDescription()
 {
+#if defined(_WIN32)
 	auto readStr = [](const wchar_t* name) -> std::string {
 		wchar_t buf[256] = {};
 		DWORD size = sizeof(buf);
@@ -469,6 +490,22 @@ std::string OsDescription()
 	if (!display.empty()) s += " " + display;
 	if (!build.empty()) s += " (build " + build + ")";
 	return s;
+#else
+	// The registry keys above are where Windows keeps its version; the same
+	// facts come from sysctl here.
+	auto readSysctl = [](const char* name) -> std::string {
+		char buf[256] = {};
+		size_t len = sizeof(buf);
+		if (::sysctlbyname(name, buf, &len, nullptr, 0) != 0) return std::string();
+		return std::string(buf);
+	};
+	const std::string release = readSysctl("kern.osproductversion");
+	const std::string build = readSysctl("kern.osversion");
+	std::string s = "macOS";
+	if (!release.empty()) s += " " + release;
+	if (!build.empty()) s += " (build " + build + ")";
+	return s;
+#endif
 }
 
 double NowMs()
@@ -509,12 +546,25 @@ Recorder* Get()
 ProcStats SampleProcess()
 {
 	ProcStats ps;
+#if defined(_WIN32)
 	PROCESS_MEMORY_COUNTERS_EX pmc{};
 	pmc.cb = sizeof(pmc);
 	if (GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS*)&pmc, sizeof(pmc))) {
 		ps.workingSetMB = pmc.WorkingSetSize / (1024.0 * 1024.0);
 		ps.privateMB = pmc.PrivateUsage / (1024.0 * 1024.0);
 	}
+#else
+	// resident_size is the working set; phys_footprint is what Activity
+	// Monitor calls the process's memory, which is the closest thing to the
+	// private commit the Windows side reports.
+	task_vm_info_data_t vm = {};
+	mach_msg_type_number_t vmCount = TASK_VM_INFO_COUNT;
+	if (task_info(mach_task_self(), TASK_VM_INFO,
+	              reinterpret_cast<task_info_t>(&vm), &vmCount) == KERN_SUCCESS) {
+		ps.workingSetMB = vm.resident_size / (1024.0 * 1024.0);
+		ps.privateMB = vm.phys_footprint / (1024.0 * 1024.0);
+	}
+#endif
 	static ULONGLONG lastCpu = 0;
 	static long long lastWall = 0;
 	FILETIME c, e, k, u;
@@ -524,7 +574,11 @@ ProcStats SampleProcess()
 		const long long wall = Qpc();
 		if (lastWall != 0) {
 			const double wallMs = QpcToMs(wall - lastWall);
+#if defined(_WIN32)
 			static const int cores = [] { SYSTEM_INFO si; GetSystemInfo(&si); return (int)si.dwNumberOfProcessors; }();
+#else
+			static const int cores = [] { const unsigned n = std::thread::hardware_concurrency(); return n > 0 ? (int)n : 1; }();
+#endif
 			if (wallMs > 0 && cores > 0) ps.cpuPct = (cpu - lastCpu) / 10000.0 / wallMs / cores * 100.0;
 		}
 		lastCpu = cpu;

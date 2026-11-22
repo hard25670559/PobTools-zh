@@ -3,10 +3,16 @@
 #include "app_version.h"
 #include "error_log.h"
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <dbghelp.h>
 #include <tlhelp32.h>
+#else
+#include "common/win_compat.h"
+#include "common/win_compat_file.h"
+#include <mach-o/dyld.h>
+#endif
 
 #include <atomic>
 #include <map>
@@ -139,6 +145,7 @@ struct ModuleRec {
 std::vector<ModuleRec> Modules()
 {
 	std::vector<ModuleRec> out;
+#if defined(_WIN32)
 	HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId());
 	if (snap == INVALID_HANDLE_VALUE) return out;
 	MODULEENTRY32W me{};
@@ -159,6 +166,24 @@ std::vector<ModuleRec> Modules()
 		} while (Module32NextW(snap, &me));
 	}
 	CloseHandle(snap);
+#else
+	// dyld answers the same question. A Mach-O image carries no build timestamp
+	// field, so stamp stays zero; the name and base address are what the report
+	// needs to pair an address with a module. dyld does not report image size
+	// either, which leaves FormatAddr printing a raw address -- the same thing
+	// it does on Windows for an address outside every module.
+	const uint32_t imageCount = _dyld_image_count();
+	for (uint32_t i = 0; i < imageCount; i++) {
+		const char* imgPath = _dyld_get_image_name(i);
+		const void* header = _dyld_get_image_header(i);
+		if (imgPath == nullptr || header == nullptr) continue;
+		ModuleRec m;
+		const char* slash = strrchr(imgPath, '/');
+		m.name = (slash != nullptr) ? slash + 1 : imgPath;
+		m.base = reinterpret_cast<uintptr_t>(header);
+		out.push_back(m);
+	}
+#endif
 	return out;
 }
 
@@ -174,12 +199,15 @@ std::string FormatAddr(const std::vector<ModuleRec>& mods, uintptr_t addr)
 // stack capture: the suspended window contains nothing but ReadProcessMemory. No allocation, loader lock or dbghelp --
 // each is a lock the stalled thread may already hold, which would wedge the watchdog against the thread it describes.
 struct StackSnap {
+#if defined(_WIN32)
 	CONTEXT ctx{};
+#endif
 	uintptr_t stackBase = 0;
 	std::vector<unsigned char> stack;
 	bool ok = false;
 };
 
+#if defined(_WIN32)
 StackSnap CaptureThread(DWORD tid)
 {
 	StackSnap s;
@@ -323,6 +351,43 @@ std::vector<DWORD> OtherThreads()
 	CloseHandle(snap);
 	return out;
 }
+#else
+
+// Everything above is the Windows stack-walking machinery: suspend a thread,
+// read its registers, copy its stack, then walk that copy through dbghelp.
+// macOS has a counterpart for each piece, but the walk has to run against a
+// thread that is deliberately stalled -- and the header's second rule is that
+// the watchdog must never become the thing that hangs. Getting that wrong
+// turns a hang the user can force-quit into one they cannot, so the stack is
+// left out rather than attempted.
+//
+// The header's third rule is what makes that acceptable: the breadcrumb is
+// worth more than the stack. The stage, the stall duration and the module list
+// all still reach the report, and the reporting path already prints its
+// "no stack" line when a walk yields nothing.
+
+StackSnap CaptureThread(DWORD tid)
+{
+	(void)tid;
+	return StackSnap();
+}
+
+void EnsureSyms() {}
+
+std::vector<std::string> WalkFrames(const StackSnap&, const std::vector<ModuleRec>&)
+{
+	return {};
+}
+
+std::vector<DWORD> OtherThreads()
+{
+	// Without a stack to walk there is nothing to report about another thread
+	// beyond its id, so the report covers the one thread whose breadcrumb is
+	// tracked.
+	return {};
+}
+
+#endif
 
 // the report
 
@@ -393,6 +458,7 @@ std::string WriteReport(const char* kind, const std::string& head,
 		if (crashCtx && tid == crashTid) body += u8"（發生例外）";
 		body += " ---\r\n";
 		std::vector<std::string> frames;
+#if defined(_WIN32)
 		if (crashCtx && tid == crashTid) {
 			// The exception's own context: nothing to suspend, the thread is us.
 			StackSnap s;
@@ -413,6 +479,11 @@ std::string WriteReport(const char* kind, const std::string& head,
 		} else {
 			frames = WalkFrames(CaptureThread(tid), mods);
 		}
+#else
+		// crashCtx is always null here: the unhandled-exception filter it comes
+		// from has no POSIX counterpart, so nothing ever supplies one.
+		frames = WalkFrames(CaptureThread(tid), mods);
+#endif
 		if (frames.empty()) body += u8"  （抓不到堆疊）\r\n";
 		for (const std::string& f : frames) body += "  " + f + "\r\n";
 	}
@@ -435,6 +506,7 @@ std::string WriteReport(const char* kind, const std::string& head,
 
 bool WindowAnswers()
 {
+#if defined(_WIN32)
 	// Our own top-level windows. One answering WM_NULL means the message pump is alive (a window drag, menu or modal file dialog look like this while the frame loop is stopped; none is a hang).
 	struct Ctx { DWORD pid; bool answered; bool found; } ctx{GetCurrentProcessId(), false, false};
 	EnumWindows([](HWND h, LPARAM lp) -> BOOL {
@@ -452,6 +524,16 @@ bool WindowAnswers()
 	}, (LPARAM)&ctx);
 	if (!ctx.found) return true;   // no window: gate two cannot be satisfied, so never report
 	return ctx.answered;
+#else
+	// Gate two asks a window whether it still answers a sent message. There is
+	// no equivalent to ask here, which is exactly the case the line above
+	// already covers: with no window to question, gate two cannot be satisfied
+	// and a stall is never reported on the heartbeat alone. That is the
+	// header's first rule -- a false alarm is worse than no alarm -- and
+	// reporting without this gate would break it, since dragging a window or
+	// holding a menu open stops the frame loop without anything being wrong.
+	return true;
+#endif
 }
 
 void ReportHang(unsigned long long stalledMs)
@@ -475,6 +557,7 @@ void ReportHang(unsigned long long stalledMs)
 
 void PollPeers()
 {
+#if defined(_WIN32)
 	std::vector<HangWatch::Peer> peers;
 	{
 		std::lock_guard<std::mutex> lk(g_peerMx);
@@ -518,6 +601,12 @@ void PollPeers()
 	state.swap(next);
 	std::lock_guard<std::mutex> lk(g_peerMx);
 	g_peerStatus = status;
+#else
+	// Peers are POB child processes the launcher registered, and asking one's
+	// window whether it still answers has no equivalent here. The launcher is
+	// not built on this platform yet, so the list is always empty and there is
+	// nothing to poll.
+#endif
 }
 
 void WatchLoop()
@@ -646,6 +735,7 @@ HangWatch::PeerStatus HangWatch::GetPeerStatus()
 
 void HangWatch::ReportCrash(_EXCEPTION_POINTERS* ep)
 {
+#if defined(_WIN32)
 	if (!ep || !ep->ExceptionRecord || !ep->ContextRecord) return;
 	{
 		std::lock_guard<std::mutex> lk(g_reportMx);
@@ -675,12 +765,25 @@ void HangWatch::ReportCrash(_EXCEPTION_POINTERS* ep)
 		                       (stage.empty() ? std::string() : u8"；正在進行 " + stage) +
 		                       (file.empty() ? std::string(u8"；報告寫不出來") : u8"；詳見 " + file));
 	}
+#else
+	// Reached only from the filter above, which nothing installs here.
+	(void)ep;
+#endif
 }
 
 long __stdcall HangWatch::CrashFilter(_EXCEPTION_POINTERS* ep)
 {
+#if defined(_WIN32)
 	ReportCrash(ep);
 	// Never swallow it: the engine's own handler still has to show its message and
 	// the process still has to die the way it would have.
 	return g_prevFilter ? g_prevFilter(ep) : EXCEPTION_CONTINUE_SEARCH;
+#else
+	// Nothing installs this filter here (SetUnhandledExceptionFilter has no
+	// POSIX counterpart), so it is never reached. A POSIX process reports a
+	// fault through a signal, and the handler that would catch it is the
+	// platform's own.
+	(void)ep;
+	return 0;
+#endif
 }

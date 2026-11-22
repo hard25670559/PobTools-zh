@@ -430,6 +430,11 @@ char* NarrowUTF8String(const wchar_t* str)
 	return NarrowCodepageString(str, CP_UTF8);
 }
 
+#endif // _WIN32
+
+// Not Windows-specific despite sitting among the code-page helpers above: this
+// walks UTF-8 bytes and records where each codepoint started, which the text
+// renderer needs on every platform.
 IndexedUTF32String IndexUTF8ToUTF32(std::string_view input)
 {
 	IndexedUTF32String ret{};
@@ -494,4 +499,3 @@ IndexedUTF32String IndexUTF8ToUTF32(std::string_view input)
 	return ret;
 }
 
-#endif

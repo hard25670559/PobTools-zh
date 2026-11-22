@@ -17,6 +17,7 @@
 #else
 #include <strings.h>
 #include <unistd.h>
+#include "common/win_compat.h"
 #endif
 #include <math.h>
 #include <errno.h>

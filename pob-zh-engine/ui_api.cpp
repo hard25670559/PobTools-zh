@@ -1738,6 +1738,7 @@ static int l_Paste(lua_State* L)
 	// which would make reverse-translation of pasted Chinese items impossible.
 	std::string utf8_text;
 	bool got_clipboard = false;
+#if defined(_WIN32)
 	if (OpenClipboard(NULL)) {
 		HANDLE hData = GetClipboardData(CF_UNICODETEXT);
 		if (hData) {
@@ -1754,6 +1755,17 @@ static int l_Paste(lua_State* L)
 		}
 		CloseClipboard();
 	}
+#else
+	// GLFW's macOS backend reads NSPasteboard as UTF-8 directly, so the
+	// corruption described above is a Windows-only problem and the portable
+	// clipboard read is safe here. Going through it rather than falling to the
+	// plain fallback below keeps the reverse-translation path that follows.
+	if (char* clip = ui->sys->ClipboardPaste()) {
+		utf8_text = clip;
+		FreeString(clip);
+		got_clipboard = !utf8_text.empty();
+	}
+#endif
 
 	if (got_clipboard && !utf8_text.empty()) {
 		// Set POB_PASTE_TRACE=1 to record what POB actually received. Everything

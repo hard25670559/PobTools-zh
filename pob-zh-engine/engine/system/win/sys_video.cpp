@@ -12,11 +12,17 @@
 #include "../../../host/perf_log.h"
 #include "../../../host/pob_frame_cap.h"
 #include "../../../host/error_log.h"
+#if defined(_WIN32)
 #include <imm.h> // the IME result string (OpacityWndProc)
+#else
+#include "common/win_compat.h"
+#endif
 
 #include <GLFW/glfw3.h>
+#if defined(_WIN32)
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h> // glfwGetWin32Window, for the opacity subclass
+#endif
 
 #include <deque>
 #include <map>
@@ -299,11 +305,17 @@ public:
 // never does. The opacity feature below is Windows-only by decision: Wine's
 // window alpha behaves differently (the framebuffer alpha already leaks through
 // on macOS), so layering on top of that would compound two effects.
+#if defined(_WIN32)
 static bool RunningUnderWine()
 {
 	HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
 	return ntdll && GetProcAddress(ntdll, "wine_get_version") != nullptr;
 }
+#else
+// Native macOS is not Wine. The feature this guards is Windows-only anyway,
+// so the answer only has to be truthful, not clever.
+static bool RunningUnderWine() { return false; }
+#endif
 
 // ---- window opacity (Windows only) -----------------------------------------
 //
@@ -429,6 +441,7 @@ static void ImeDeliverUnit(wchar_t u)
 	ImeDeliver(u);
 }
 
+#if defined(_WIN32)
 // true when the result string was delivered (the caller strips it from lParam)
 static bool ImeTakeResult(HWND hwnd)
 {
@@ -517,6 +530,12 @@ static LRESULT CALLBACK OpacityWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
 	}
 	return CallWindowProcW(g_opacityPrevWndProc, hwnd, msg, wParam, lParam);
 }
+#else
+// The IME interception above exists because GLFW's Windows backend loses the
+// composition result. Its macOS backend reads the system input method directly
+// and delivers the composed characters through the ordinary character callback,
+// so there is nothing to intercept and no window procedure to subclass.
+#endif
 
 static void ReadBackgroundEnv(sys_IVideo* video)
 {
@@ -544,6 +563,7 @@ static void ReadFrameCapEnv(GLFWwindow* wnd, sys_IVideo* video)
 	n = GetEnvironmentVariableA("POB_ZH_FPS_BG", buf, sizeof(buf));
 	if (n > 0 && n < sizeof(buf)) video->fpsBackground = PobFrameCap::ClampFps(atoi(buf));
 	if (!wnd) return;
+#if defined(_WIN32)
 	HWND hwnd = glfwGetWin32Window(wnd);
 	video->nativeWindow = hwnd;
 	if (HMONITOR mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)) {
@@ -555,8 +575,23 @@ static void ReadFrameCapEnv(GLFWwindow* wnd, sys_IVideo* video)
 		    dm.dmDisplayFrequency > 1)
 			video->refreshHz = (int)dm.dmDisplayFrequency;
 	}
+#else
+	// The caps above are plain numbers and apply everywhere. Only the two
+	// facts that came from Win32 need another source: GLFW reports the
+	// refresh rate portably, and the native handle is left unset because
+	// nothing outside the Windows-only opacity subclass reads it.
+	video->nativeWindow = nullptr;
+	GLFWmonitor* mon = glfwGetWindowMonitor(wnd);
+	if (!mon) mon = glfwGetPrimaryMonitor();
+	if (mon) {
+		if (const GLFWvidmode* mode = glfwGetVideoMode(mon)) {
+			if (mode->refreshRate > 1) video->refreshHz = mode->refreshRate;
+		}
+	}
+#endif
 }
 
+#if defined(_WIN32)
 static void InstallWindowOpacity(GLFWwindow* wnd, sys_IVideo* video)
 {
 	if (!wnd || RunningUnderWine()) return;
@@ -575,6 +610,12 @@ static void InstallWindowOpacity(GLFWwindow* wnd, sys_IVideo* video)
 	if (end == buf) return;
 	SetWindowOpacityPct(hwnd, (int)pct);
 }
+#else
+// The opacity subclass is Windows-only by the decision documented above, and
+// macOS is the platform that comment names: the framebuffer alpha already
+// shows through here, so there is nothing to layer on top of.
+static void InstallWindowOpacity(GLFWwindow*, sys_IVideo*) {}
+#endif
 
 bool ShouldIgnoreDpiScale() {
 #ifdef _WIN32
