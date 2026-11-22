@@ -20,13 +20,7 @@
 
 #include <GLFW/glfw3.h>
 #if defined(__APPLE__)
-// Declared by hand: glfw3native.h and objc/runtime.h both typedef BOOL the way
-// win_compat.h above has already spelled it.
-typedef struct objc_object* pob_id;
-typedef struct objc_selector* pob_sel;
-extern "C" void* glfwGetCocoaWindow(GLFWwindow*);
-extern "C" pob_sel sel_getUid(const char*);
-extern "C" void objc_msgSend(void);
+#include "../../../host/apple_layer_scale.h"
 #endif
 #if defined(_WIN32)
 #define GLFW_EXPOSE_NATIVE_WIN32
@@ -1022,48 +1016,10 @@ bool sys_video_c::IsActive()
 }
 
 #if defined(__APPLE__)
-// Keep what POB draws in step with the layer it is shown through.
-//
-// ANGLE sizes its surface from the window, in points, but the layer that
-// surface reaches the screen through carries a density of its own -- the one
-// the display it was made on wanted. Where the two disagree the surface is
-// shown at a fraction of the window and POB sits in a corner of it, which is
-// what happens when the window is carried to a display of another density.
-//
-// Asking for one pixel per point settles it on most displays. A display that
-// insists on its own density hands it straight back, so whatever the layer
-// ends up at is what POB is told to draw at. Checked every frame: the window
-// can be carried between displays at any time and GLFW raises no event for it.
+// See host/apple_layer_scale.h for what this repairs and why it runs so often.
 void sys_video_c::HoldAppleLayerScale()
 {
-	if (!wnd) return;
-	pob_id window = (pob_id)glfwGetCocoaWindow(wnd);
-	if (!window) return;
-	pob_id view = ((pob_id(*)(pob_id, pob_sel))objc_msgSend)(window, sel_getUid("contentView"));
-	if (!view) return;
-	pob_id layer = ((pob_id(*)(pob_id, pob_sel))objc_msgSend)(view, sel_getUid("layer"));
-	if (!layer) return;
-	const double want = ((double(*)(pob_id, pob_sel))objc_msgSend)(window, sel_getUid("backingScaleFactor"));
-	const double have = ((double(*)(pob_id, pob_sel))objc_msgSend)(layer, sel_getUid("contentsScale"));
-	if (want > 0.125 && want < 8.0 && (have < want - 0.01 || have > want + 0.01)) {
-		((void(*)(pob_id, pob_sel, double))objc_msgSend)(layer, sel_getUid("setContentsScale:"), want);
-		pob_id subs = ((pob_id(*)(pob_id, pob_sel))objc_msgSend)(layer, sel_getUid("sublayers"));
-		const long count = subs ? ((long(*)(pob_id, pob_sel))objc_msgSend)(subs, sel_getUid("count")) : 0;
-		for (long i = 0; i < count; ++i) {
-			pob_id sub = ((pob_id(*)(pob_id, pob_sel, long))objc_msgSend)(subs, sel_getUid("objectAtIndex:"), i);
-			if (sub) ((void(*)(pob_id, pob_sel, double))objc_msgSend)(sub, sel_getUid("setContentsScale:"), want);
-		}
-	}
-	// Some displays refuse it and hand the layer their own density back. Draw
-	// at whatever it ends up being, so the surface still covers the window.
-	const double now = ((double(*)(pob_id, pob_sel))objc_msgSend)(layer, sel_getUid("contentsScale"));
-	if (!(now > 0.125 && now < 8.0)) return;
-	if (vid.size[0] <= 0 || vid.size[1] <= 0) return;
-	vid.fbSize[0] = (int)(vid.size[0] * now);
-	vid.fbSize[1] = (int)(vid.size[1] * now);
-	if (!ignoreDpiScale) {
-		vid.dpiScale = (float)now;
-	}
+	pob_apple::HoldLayerScale(wnd);
 }
 
 // Reached from the renderer at the top of each frame.
