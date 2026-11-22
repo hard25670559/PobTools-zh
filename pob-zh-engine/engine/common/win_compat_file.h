@@ -399,12 +399,71 @@ inline unsigned long GetCurrentProcessId()
 	return static_cast<unsigned long>(::getpid());
 }
 
-// Win32: the last error of the calling thread. The engine compares it against
-// one value only (a sharing violation, to pick a per-process log name), which
-// POSIX never produces, so errno is reported as-is and that branch is simply
-// never taken.
+// ----------------------------------------------------- error codes
+//
+// Declared here, ahead of GetLastError, because that function translates into
+// them. The later block repeats the ones it needs under the same guards.
+
+#if !defined(ERROR_SUCCESS)
+#define ERROR_SUCCESS 0u
+#endif
+#if !defined(ERROR_FILE_NOT_FOUND)
+#define ERROR_FILE_NOT_FOUND 2u
+#endif
+#if !defined(ERROR_PATH_NOT_FOUND)
+#define ERROR_PATH_NOT_FOUND 3u
+#endif
+#if !defined(ERROR_ACCESS_DENIED)
+#define ERROR_ACCESS_DENIED 5u
+#endif
+#if !defined(ERROR_SHARING_VIOLATION)
+#define ERROR_SHARING_VIOLATION 32u
+#endif
+#if !defined(ERROR_FILE_EXISTS)
+#define ERROR_FILE_EXISTS 80u
+#endif
+#if !defined(ERROR_INSUFFICIENT_BUFFER)
+#define ERROR_INSUFFICIENT_BUFFER 122u
+#endif
+#if !defined(ERROR_ALREADY_EXISTS)
+#define ERROR_ALREADY_EXISTS 183u
+#endif
+
+// Win32: the last error of the calling thread.
+//
+// Callers compare this against Win32 codes -- ERROR_ALREADY_EXISTS and the
+// like -- whose numbers have nothing to do with errno's. Returning errno raw
+// made every one of those comparisons fail silently. The recursive mkdir
+// helper is the clearest case: a level that already existed came back as an
+// unrecognised error, the helper treated it as fatal, and nothing below that
+// level was ever created. Everything downstream then operated on directories
+// that were not there.
+//
+// Only the codes call sites actually compare against are translated; anything
+// else keeps its errno value, which says more than a wrong Win32 code would.
 inline unsigned long GetLastError()
 {
+	switch (errno) {
+	case 0:
+		return ERROR_SUCCESS;
+	case ENOENT:
+		return ERROR_FILE_NOT_FOUND;
+	case ENOTDIR:
+		return ERROR_PATH_NOT_FOUND;
+	case EEXIST:
+		return ERROR_ALREADY_EXISTS;
+	case EACCES:
+	case EPERM:
+	case EROFS:
+		return ERROR_ACCESS_DENIED;
+	case EAGAIN: // EWOULDBLOCK is the same value here
+		return ERROR_SHARING_VIOLATION;
+	case ENAMETOOLONG:
+	case ERANGE:
+		return ERROR_INSUFFICIENT_BUFFER;
+	default:
+		break;
+	}
 	return static_cast<unsigned long>(errno);
 }
 
