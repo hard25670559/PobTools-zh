@@ -30,13 +30,20 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <dlfcn.h>
 #include <ctime>
 #include <dirent.h>
 #include <fcntl.h>
 #include <fnmatch.h>
 #include <string>
+#include <vector>
 #include <sys/resource.h>
+#include <sys/file.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <signal.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -1054,6 +1061,1083 @@ inline int AttachConsole(unsigned long processId) { (void)processId; return 1; }
 inline int AllocConsole() { return 1; }
 inline int FreeConsole() { return 1; }
 inline int SetConsoleOutputCP(unsigned int codePage) { (void)codePage; return 1; }
+
+// ----------------------------------------------------- error codes
+
+#if !defined(ERROR_SUCCESS)
+#define ERROR_SUCCESS 0u
+#endif
+#if !defined(ERROR_FILE_NOT_FOUND)
+#define ERROR_FILE_NOT_FOUND 2u
+#endif
+#if !defined(ERROR_PATH_NOT_FOUND)
+#define ERROR_PATH_NOT_FOUND 3u
+#endif
+#if !defined(ERROR_ACCESS_DENIED)
+#define ERROR_ACCESS_DENIED 5u
+#endif
+#if !defined(ERROR_ALREADY_EXISTS)
+#define ERROR_ALREADY_EXISTS 183u
+#endif
+#if !defined(ERROR_INSUFFICIENT_BUFFER)
+#define ERROR_INSUFFICIENT_BUFFER 122u
+#endif
+
+using PWSTR = wchar_t*;
+using PCWSTR = const wchar_t*;
+using PSTR = char*;
+using PCSTR = const char*;
+using LPWSTR_T = wchar_t*;
+
+// -------------------------------------------------------- .ini files
+
+// Win32 keeps small settings in .ini files through this API. There is no
+// equivalent here, so the format is parsed directly: it is simple enough that
+// matching the behaviour the callers depend on (section lookup, key lookup,
+// default on miss, in-place update on write) is clearer than redirecting them
+// to a different store, which would also strand the settings a Windows
+// install already wrote.
+
+namespace pob_win_compat {
+
+inline std::string TrimCopy(const std::string& in)
+{
+	size_t a = in.find_first_not_of(" \t\r\n");
+	if (a == std::string::npos) return std::string();
+	size_t b = in.find_last_not_of(" \t\r\n");
+	return in.substr(a, b - a + 1);
+}
+
+inline bool IniEqual(const std::string& a, const std::string& b)
+{
+	if (a.size() != b.size()) return false;
+	for (size_t i = 0; i < a.size(); i++) {
+		char ca = a[i], cb = b[i];
+		if (ca >= 'A' && ca <= 'Z') ca = static_cast<char>(ca + 32);
+		if (cb >= 'A' && cb <= 'Z') cb = static_cast<char>(cb + 32);
+		if (ca != cb) return false;
+	}
+	return true;
+}
+
+inline std::string IniRead(const std::string& path)
+{
+	FILE* f = std::fopen(path.c_str(), "rb");
+	if (f == nullptr) return std::string();
+	std::string out;
+	char buf[4096];
+	size_t n;
+	while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) out.append(buf, n);
+	std::fclose(f);
+	return out;
+}
+
+inline bool IniWrite(const std::string& path, const std::string& content)
+{
+	FILE* f = std::fopen(path.c_str(), "wb");
+	if (f == nullptr) return false;
+	const bool ok = content.empty() ||
+		std::fwrite(content.data(), 1, content.size(), f) == content.size();
+	std::fclose(f);
+	return ok;
+}
+
+// Returns the value for section/key, or an empty string when absent.
+inline std::string IniGet(const std::string& path, const std::string& section, const std::string& key)
+{
+	const std::string text = IniRead(path);
+	std::string current;
+	size_t pos = 0;
+	while (pos <= text.size()) {
+		size_t nl = text.find('\n', pos);
+		if (nl == std::string::npos) nl = text.size();
+		const std::string line = TrimCopy(text.substr(pos, nl - pos));
+		pos = nl + 1;
+		if (line.empty() || line[0] == ';' || line[0] == '#') continue;
+		if (line.front() == '[' && line.back() == ']') {
+			current = TrimCopy(line.substr(1, line.size() - 2));
+			continue;
+		}
+		const size_t eq = line.find('=');
+		if (eq == std::string::npos) continue;
+		if (!IniEqual(current, section)) continue;
+		if (IniEqual(TrimCopy(line.substr(0, eq)), key)) {
+			return TrimCopy(line.substr(eq + 1));
+		}
+	}
+	return std::string();
+}
+
+// Sets section/key, creating either when missing. A null value deletes the key.
+inline bool IniSet(const std::string& path, const std::string& section,
+                   const std::string& key, const char* value)
+{
+	const std::string text = IniRead(path);
+	std::vector<std::string> lines;
+	size_t pos = 0;
+	while (pos <= text.size()) {
+		size_t nl = text.find('\n', pos);
+		if (nl == std::string::npos) nl = text.size();
+		std::string line = text.substr(pos, nl - pos);
+		if (!line.empty() && line.back() == '\r') line.pop_back();
+		lines.push_back(line);
+		if (nl == text.size()) break;
+		pos = nl + 1;
+	}
+
+	int sectionStart = -1, sectionEnd = -1, keyLine = -1;
+	std::string current;
+	for (size_t i = 0; i < lines.size(); i++) {
+		const std::string t = TrimCopy(lines[i]);
+		if (t.size() >= 2 && t.front() == '[' && t.back() == ']') {
+			const std::string name = TrimCopy(t.substr(1, t.size() - 2));
+			if (IniEqual(name, section)) { sectionStart = static_cast<int>(i); sectionEnd = -1; }
+			else if (sectionStart >= 0 && sectionEnd < 0) { sectionEnd = static_cast<int>(i); }
+			continue;
+		}
+		if (sectionStart >= 0 && sectionEnd < 0 && keyLine < 0) {
+			const size_t eq = t.find('=');
+			if (eq != std::string::npos && IniEqual(TrimCopy(t.substr(0, eq)), key)) {
+				keyLine = static_cast<int>(i);
+			}
+		}
+	}
+	if (sectionEnd < 0) sectionEnd = static_cast<int>(lines.size());
+
+	if (value == nullptr) {
+		if (keyLine >= 0) lines.erase(lines.begin() + keyLine);
+	} else if (keyLine >= 0) {
+		lines[keyLine] = key + "=" + value;
+	} else if (sectionStart >= 0) {
+		lines.insert(lines.begin() + sectionEnd, key + "=" + value);
+	} else {
+		if (!lines.empty() && !TrimCopy(lines.back()).empty()) lines.push_back(std::string());
+		lines.push_back("[" + section + "]");
+		lines.push_back(key + "=" + value);
+	}
+
+	std::string out;
+	for (size_t i = 0; i < lines.size(); i++) {
+		out += lines[i];
+		if (i + 1 < lines.size()) out += "\n";
+	}
+	if (!out.empty() && out.back() != '\n') out += "\n";
+	return IniWrite(path, out);
+}
+
+} // namespace pob_win_compat
+
+inline unsigned long GetPrivateProfileStringW(const wchar_t* section, const wchar_t* key,
+                                              const wchar_t* fallback, wchar_t* buffer,
+                                              unsigned long size, const wchar_t* path)
+{
+	if (buffer == nullptr || size == 0) return 0;
+	buffer[0] = L'\0';
+	const std::string value = (section != nullptr && key != nullptr && path != nullptr)
+		? pob_win_compat::IniGet(pob_win_compat::WideToUtf8(path),
+		                         pob_win_compat::WideToUtf8(section),
+		                         pob_win_compat::WideToUtf8(key))
+		: std::string();
+	if (!value.empty()) {
+		return static_cast<unsigned long>(pob_win_compat::Utf8ToWide(value.c_str(), buffer, size));
+	}
+	if (fallback == nullptr) return 0;
+	unsigned long n = 0;
+	for (; fallback[n] != L'\0' && n + 1 < size; n++) buffer[n] = fallback[n];
+	buffer[n] = L'\0';
+	return n;
+}
+
+inline unsigned int GetPrivateProfileIntW(const wchar_t* section, const wchar_t* key,
+                                          int fallback, const wchar_t* path)
+{
+	if (section == nullptr || key == nullptr || path == nullptr) {
+		return static_cast<unsigned int>(fallback);
+	}
+	const std::string value = pob_win_compat::IniGet(pob_win_compat::WideToUtf8(path),
+	                                                 pob_win_compat::WideToUtf8(section),
+	                                                 pob_win_compat::WideToUtf8(key));
+	if (value.empty()) return static_cast<unsigned int>(fallback);
+	errno = 0;
+	const long parsed = std::strtol(value.c_str(), nullptr, 10);
+	return errno == 0 ? static_cast<unsigned int>(parsed) : static_cast<unsigned int>(fallback);
+}
+
+inline int WritePrivateProfileStringW(const wchar_t* section, const wchar_t* key,
+                                      const wchar_t* value, const wchar_t* path)
+{
+	if (section == nullptr || path == nullptr) return 0;
+	const std::string p = pob_win_compat::WideToUtf8(path);
+	const std::string s = pob_win_compat::WideToUtf8(section);
+	if (key == nullptr) return 0; // deleting a whole section is not used here
+	const std::string k = pob_win_compat::WideToUtf8(key);
+	if (value == nullptr) return pob_win_compat::IniSet(p, s, k, nullptr) ? 1 : 0;
+	const std::string v = pob_win_compat::WideToUtf8(value);
+	return pob_win_compat::IniSet(p, s, k, v.c_str()) ? 1 : 0;
+}
+
+// --------------------------------------------------- dynamic loading
+
+inline HMODULE LoadLibraryExW(const wchar_t* path, HANDLE reserved, unsigned long flags)
+{
+	(void)reserved; (void)flags;
+	if (path == nullptr) return nullptr;
+	const std::string utf8 = pob_win_compat::WideToUtf8(path);
+	return ::dlopen(utf8.c_str(), RTLD_LAZY);
+}
+
+inline HMODULE LoadLibraryW(const wchar_t* path)
+{
+	return LoadLibraryExW(path, nullptr, 0);
+}
+
+inline HMODULE GetModuleHandleW(const wchar_t* name)
+{
+	if (name == nullptr) return ::dlopen(nullptr, RTLD_LAZY | RTLD_NOLOAD);
+	const std::string utf8 = pob_win_compat::WideToUtf8(name);
+	return GetModuleHandleA(utf8.c_str());
+}
+
+inline void* GetProcAddress(HMODULE module, const char* name)
+{
+	if (module == nullptr || name == nullptr) return nullptr;
+	return ::dlsym(module, name);
+}
+
+inline int FreeLibrary(HMODULE module)
+{
+	if (module == nullptr) return 0;
+	return ::dlclose(module) == 0 ? 1 : 0;
+}
+
+// Win32: adds a directory to the DLL search path. The equivalent here is the
+// rpath baked into each binary at link time, which is already set, so there is
+// nothing for this to change.
+inline int SetDllDirectoryW(const wchar_t* path) { (void)path; return 1; }
+
+// ------------------------------------------------------------- misc
+
+inline int _wtoi(const wchar_t* text)
+{
+	if (text == nullptr) return 0;
+	const std::string utf8 = pob_win_compat::WideToUtf8(text);
+	return std::atoi(utf8.c_str());
+}
+
+inline int SetFileTime(HANDLE h, const FILETIME* creation, const FILETIME* access, const FILETIME* write)
+{
+	(void)creation; // no POSIX equivalent of a creation time that can be set
+	const int fd = pob_win_compat::HandleToFd(h);
+	if (fd < 0) return 0;
+	struct stat st = {};
+	if (::fstat(fd, &st) != 0) return 0;
+
+	auto to_timespec = [](const FILETIME* ft, time_t fallback) {
+		timespec ts = {};
+		if (ft == nullptr) { ts.tv_sec = fallback; return ts; }
+		const unsigned long long ticks =
+			(static_cast<unsigned long long>(ft->dwHighDateTime) << 32) | ft->dwLowDateTime;
+		const unsigned long long secs = ticks / 10000000ULL;
+		ts.tv_sec = static_cast<time_t>(secs > pob_win_compat::kEpochDeltaSeconds
+			? secs - pob_win_compat::kEpochDeltaSeconds : 0);
+		ts.tv_nsec = static_cast<long>((ticks % 10000000ULL) * 100ULL);
+		return ts;
+	};
+
+	timespec times[2];
+	times[0] = to_timespec(access, st.st_atime);
+	times[1] = to_timespec(write, st.st_mtime);
+	return ::futimens(fd, times) == 0 ? 1 : 0;
+}
+
+// ------------------------------------------------------------ sockets
+
+// Winsock names the BSD socket API differently and needs explicit startup.
+// The underlying calls are the same ones POSIX provides, so only the spelling
+// differs here.
+using SOCKET = int;
+
+#if !defined(INVALID_SOCKET)
+#define INVALID_SOCKET (-1)
+#endif
+#if !defined(SOCKET_ERROR)
+#define SOCKET_ERROR (-1)
+#endif
+
+inline int closesocket(SOCKET s) { return ::close(s); }
+
+// Winsock requires this before any socket call; the BSD API does not.
+inline int WSAStartup(unsigned short version, void* data) { (void)version; (void)data; return 0; }
+inline int WSACleanup() { return 0; }
+inline int WSAGetLastError() { return errno; }
+
+// --------------------------------------------------- shell / messages
+
+#if !defined(SW_HIDE)
+#define SW_HIDE 0
+#endif
+#if !defined(SW_SHOWNORMAL)
+#define SW_SHOWNORMAL 1
+#endif
+#if !defined(SW_SHOW)
+#define SW_SHOW 5
+#endif
+
+#if !defined(MB_OK)
+#define MB_OK 0x00000000u
+#endif
+#if !defined(MB_OKCANCEL)
+#define MB_OKCANCEL 0x00000001u
+#endif
+#if !defined(MB_YESNO)
+#define MB_YESNO 0x00000004u
+#endif
+#if !defined(MB_ICONERROR)
+#define MB_ICONERROR 0x00000010u
+#endif
+#if !defined(MB_ICONWARNING)
+#define MB_ICONWARNING 0x00000030u
+#endif
+#if !defined(MB_ICONINFORMATION)
+#define MB_ICONINFORMATION 0x00000040u
+#endif
+#if !defined(IDOK)
+#define IDOK 1
+#endif
+#if !defined(IDCANCEL)
+#define IDCANCEL 2
+#endif
+#if !defined(IDYES)
+#define IDYES 6
+#endif
+#if !defined(IDNO)
+#define IDNO 7
+#endif
+
+namespace pob_win_compat {
+
+// Runs a command with its arguments, without a shell. Used by the two
+// shell-style helpers below, which both need to hand a path or URL to the
+// desktop without it being reinterpreted by /bin/sh.
+inline bool SpawnDetached(const char* program, const char* arg)
+{
+	const pid_t pid = ::fork();
+	if (pid < 0) return false;
+	if (pid == 0) {
+		::setsid();
+		const char* argv[3] = { program, arg, nullptr };
+		::execvp(program, const_cast<char* const*>(argv));
+		::_exit(127);
+	}
+	// Reaped by the double-fork-free path: the child is in its own session and
+	// this process does not wait, so it is inherited by init when it exits.
+	return true;
+}
+
+} // namespace pob_win_compat
+
+// Win32 (Shell): opens a document or URL with whatever is registered for it.
+// macOS has one command for exactly this.
+inline HANDLE ShellExecuteW(HWND parent, const wchar_t* verb, const wchar_t* file,
+                            const wchar_t* parameters, const wchar_t* directory, int showCmd)
+{
+	(void)parent; (void)verb; (void)parameters; (void)directory; (void)showCmd;
+	if (file == nullptr) return nullptr;
+	const std::string target = pob_win_compat::WideToUtf8(file);
+#if defined(__APPLE__)
+	const bool ok = pob_win_compat::SpawnDetached("open", target.c_str());
+#else
+	const bool ok = pob_win_compat::SpawnDetached("xdg-open", target.c_str());
+#endif
+	// Win32 returns an instance handle above 32 on success; callers only test
+	// against that threshold.
+	return ok ? reinterpret_cast<HANDLE>(static_cast<intptr_t>(42)) : nullptr;
+}
+
+inline HANDLE ShellExecuteA(HWND parent, const char* verb, const char* file,
+                            const char* parameters, const char* directory, int showCmd)
+{
+	(void)parent; (void)verb; (void)parameters; (void)directory; (void)showCmd;
+	if (file == nullptr) return nullptr;
+#if defined(__APPLE__)
+	const bool ok = pob_win_compat::SpawnDetached("open", file);
+#else
+	const bool ok = pob_win_compat::SpawnDetached("xdg-open", file);
+#endif
+	return ok ? reinterpret_cast<HANDLE>(static_cast<intptr_t>(42)) : nullptr;
+}
+
+// Win32: a modal message box. There is no equivalent that can be raised from
+// arbitrary code here -- a native alert needs the main thread and an event
+// loop, and the launcher already draws its own dialogs through ImGui. The
+// message goes to stderr so it is not lost, and the answer is the default one.
+inline int MessageBoxW(HWND parent, const wchar_t* text, const wchar_t* caption, unsigned int type)
+{
+	(void)parent;
+	const std::string body = (text != nullptr) ? pob_win_compat::WideToUtf8(text) : std::string();
+	const std::string head = (caption != nullptr) ? pob_win_compat::WideToUtf8(caption) : std::string();
+	std::fprintf(stderr, "[%s] %s\n", head.c_str(), body.c_str());
+	if ((type & MB_YESNO) == MB_YESNO) return IDNO;      // the safe answer
+	if ((type & MB_OKCANCEL) == MB_OKCANCEL) return IDCANCEL;
+	return IDOK;
+}
+
+inline int MessageBoxA(HWND parent, const char* text, const char* caption, unsigned int type)
+{
+	(void)parent;
+	std::fprintf(stderr, "[%s] %s\n", caption ? caption : "", text ? text : "");
+	if ((type & MB_YESNO) == MB_YESNO) return IDNO;
+	if ((type & MB_OKCANCEL) == MB_OKCANCEL) return IDCANCEL;
+	return IDOK;
+}
+
+// ------------------------------------------------------------- audio
+
+// Win32 (MCI): a string-command interface to the multimedia system. Only
+// "play <file>" and "close" reach it here, so the file is handed to the
+// platform's own player instead of emulating the command language.
+inline unsigned long mciSendStringW(const wchar_t* command, wchar_t* returnValue,
+                                    unsigned int returnLength, HWND callback)
+{
+	(void)callback;
+	if (returnValue != nullptr && returnLength > 0) returnValue[0] = L'\0';
+	if (command == nullptr) return 1;
+	const std::string cmd = pob_win_compat::WideToUtf8(command);
+	// "play <path> ..." -- take the quoted or unquoted path that follows.
+	if (cmd.compare(0, 5, "play ") == 0) {
+		std::string path = cmd.substr(5);
+		const size_t q1 = path.find('"');
+		if (q1 != std::string::npos) {
+			const size_t q2 = path.find('"', q1 + 1);
+			if (q2 != std::string::npos) path = path.substr(q1 + 1, q2 - q1 - 1);
+		} else {
+			const size_t sp = path.find(' ');
+			if (sp != std::string::npos) path = path.substr(0, sp);
+		}
+#if defined(__APPLE__)
+		return pob_win_compat::SpawnDetached("afplay", path.c_str()) ? 0 : 1;
+#else
+		return pob_win_compat::SpawnDetached("aplay", path.c_str()) ? 0 : 1;
+#endif
+	}
+	// "close" / "stop" and anything else: nothing to do, report success so the
+	// caller does not treat it as a failure.
+	return 0;
+}
+
+// ------------------------------------------------------ window stubs
+
+// These reach code paths the launcher only takes on Windows (its own window is
+// a GLFW window, which it addresses through GLFW). Answering "no window"
+// is both true and what the callers handle.
+inline HWND GetActiveWindow() { return nullptr; }
+inline HWND GetForegroundWindow() { return nullptr; }
+inline int PostMessageW(HWND window, unsigned int message, WPARAM w, LPARAM l)
+{
+	(void)window; (void)message; (void)w; (void)l;
+	return 0;
+}
+inline int IsWindow(HWND window) { return window != nullptr ? 0 : 0; }
+inline int IsIconic(HWND window) { (void)window; return 0; }
+inline int IsZoomed(HWND window) { (void)window; return 0; }
+inline int IsWindowVisible(HWND window) { (void)window; return 0; }
+
+// ----------------------------------------------------- misc typedefs
+
+using INT_PTR = intptr_t;
+using UINT_PTR = uintptr_t;
+using DWORD_PTR = uintptr_t;
+using SSIZE_T = intptr_t;
+using SIZE_T = size_t;
+
+struct WSADATA {
+	unsigned short wVersion;
+	unsigned short wHighVersion;
+	char szDescription[257];
+	char szSystemStatus[129];
+};
+
+#if !defined(MAKEWORD)
+#define MAKEWORD(a, b) ((unsigned short)(((unsigned char)(a)) | ((unsigned short)((unsigned char)(b))) << 8))
+#endif
+
+inline int _wcsnicmp(const wchar_t* a, const wchar_t* b, size_t count)
+{
+	for (size_t i = 0; i < count; i++) {
+		if (a[i] == 0 && b[i] == 0) return 0;
+		wchar_t ca = a[i], cb = b[i];
+		if (ca >= L'A' && ca <= L'Z') ca = static_cast<wchar_t>(ca + 32);
+		if (cb >= L'A' && cb <= L'Z') cb = static_cast<wchar_t>(cb + 32);
+		if (ca != cb) return ca < cb ? -1 : 1;
+	}
+	return 0;
+}
+
+// ------------------------------------------------- process management
+
+#if !defined(HANDLE_FLAG_INHERIT)
+#define HANDLE_FLAG_INHERIT 0x00000001u
+#endif
+#if !defined(STARTF_USESTDHANDLES)
+#define STARTF_USESTDHANDLES 0x00000100u
+#endif
+#if !defined(STARTF_USESHOWWINDOW)
+#define STARTF_USESHOWWINDOW 0x00000001u
+#endif
+#if !defined(CREATE_NO_WINDOW)
+#define CREATE_NO_WINDOW 0x08000000u
+#endif
+#if !defined(CREATE_NEW_CONSOLE)
+#define CREATE_NEW_CONSOLE 0x00000010u
+#endif
+#if !defined(DETACHED_PROCESS)
+#define DETACHED_PROCESS 0x00000008u
+#endif
+#if !defined(STILL_ACTIVE)
+#define STILL_ACTIVE 259u
+#endif
+#if !defined(INFINITE)
+#define INFINITE 0xFFFFFFFFu
+#endif
+
+struct STARTUPINFOW {
+	unsigned long cb;
+	wchar_t* lpReserved;
+	wchar_t* lpDesktop;
+	wchar_t* lpTitle;
+	unsigned long dwX, dwY, dwXSize, dwYSize;
+	unsigned long dwXCountChars, dwYCountChars, dwFillAttribute;
+	unsigned long dwFlags;
+	unsigned short wShowWindow;
+	unsigned short cbReserved2;
+	unsigned char* lpReserved2;
+	HANDLE hStdInput;
+	HANDLE hStdOutput;
+	HANDLE hStdError;
+};
+using STARTUPINFO = STARTUPINFOW;
+
+struct PROCESS_INFORMATION {
+	HANDLE hProcess;
+	HANDLE hThread;
+	unsigned long dwProcessId;
+	unsigned long dwThreadId;
+};
+
+namespace pob_win_compat {
+
+// A process handle, told apart from file and event handles by its own magic.
+struct ProcessState {
+	static constexpr unsigned int kMagic = 0x50524F31u; // "PRO1"
+	unsigned int magic = kMagic;
+	pid_t pid = -1;
+	bool reaped = false;
+	int status = 0;
+};
+
+inline ProcessState* AsProcess(HANDLE h)
+{
+	const uintptr_t v = reinterpret_cast<uintptr_t>(h);
+	if (h == nullptr || h == INVALID_HANDLE_VALUE || v < 0x10000) return nullptr;
+	auto* candidate = reinterpret_cast<ProcessState*>(h);
+	return candidate->magic == ProcessState::kMagic ? candidate : nullptr;
+}
+
+// Splits a Win32 command line the way CommandLineToArgvW does for the shapes
+// the launcher produces: a quoted program path followed by plain arguments.
+inline std::vector<std::string> SplitCommandLine(const std::string& line)
+{
+	std::vector<std::string> out;
+	std::string current;
+	bool inQuotes = false, has = false;
+	for (size_t i = 0; i < line.size(); i++) {
+		const char c = line[i];
+		if (c == '"') { inQuotes = !inQuotes; has = true; continue; }
+		if (!inQuotes && (c == ' ' || c == '\t')) {
+			if (has) { out.push_back(current); current.clear(); has = false; }
+			continue;
+		}
+		current.push_back(c);
+		has = true;
+	}
+	if (has) out.push_back(current);
+	return out;
+}
+
+} // namespace pob_win_compat
+
+// Win32: starts a process. Only the parts the launcher uses are honoured --
+// the command line, the working directory and inherited std handles. The
+// creation flags that concern consoles and windows have no counterpart and are
+// ignored rather than approximated.
+inline int CreateProcessW(const wchar_t* applicationName, wchar_t* commandLine,
+                          void* processAttributes, void* threadAttributes,
+                          int inheritHandles, unsigned long creationFlags,
+                          void* environment, const wchar_t* currentDirectory,
+                          STARTUPINFOW* startupInfo, PROCESS_INFORMATION* out)
+{
+	(void)processAttributes; (void)threadAttributes; (void)inheritHandles;
+	(void)creationFlags; (void)environment;
+	if (out == nullptr) return 0;
+
+	std::vector<std::string> argv;
+	if (applicationName != nullptr) {
+		argv.push_back(pob_win_compat::WideToUtf8(applicationName));
+		if (commandLine != nullptr) {
+			auto rest = pob_win_compat::SplitCommandLine(pob_win_compat::WideToUtf8(commandLine));
+			// The command line repeats the program as argv[0] on Windows.
+			if (!rest.empty()) rest.erase(rest.begin());
+			for (const std::string& a : rest) argv.push_back(a);
+		}
+	} else if (commandLine != nullptr) {
+		argv = pob_win_compat::SplitCommandLine(pob_win_compat::WideToUtf8(commandLine));
+	}
+	if (argv.empty()) return 0;
+
+	const std::string dir = (currentDirectory != nullptr)
+		? pob_win_compat::WideToUtf8(currentDirectory) : std::string();
+
+	int stdFds[3] = { -1, -1, -1 };
+	if (startupInfo != nullptr && (startupInfo->dwFlags & STARTF_USESTDHANDLES) != 0) {
+		stdFds[0] = pob_win_compat::HandleToFd(startupInfo->hStdInput);
+		stdFds[1] = pob_win_compat::HandleToFd(startupInfo->hStdOutput);
+		stdFds[2] = pob_win_compat::HandleToFd(startupInfo->hStdError);
+	}
+
+	const pid_t pid = ::fork();
+	if (pid < 0) return 0;
+	if (pid == 0) {
+		if (!dir.empty()) {
+			if (::chdir(dir.c_str()) != 0) ::_exit(126);
+		}
+		for (int i = 0; i < 3; i++) {
+			if (stdFds[i] >= 0 && stdFds[i] != i) ::dup2(stdFds[i], i);
+		}
+		std::vector<char*> raw;
+		raw.reserve(argv.size() + 1);
+		for (std::string& a : argv) raw.push_back(const_cast<char*>(a.c_str()));
+		raw.push_back(nullptr);
+		::execvp(raw[0], raw.data());
+		::_exit(127);
+	}
+
+	auto* state = new pob_win_compat::ProcessState();
+	state->pid = pid;
+	out->hProcess = reinterpret_cast<HANDLE>(state);
+	out->hThread = nullptr;   // no separate thread handle exists here
+	out->dwProcessId = static_cast<unsigned long>(pid);
+	out->dwThreadId = 0;
+	return 1;
+}
+
+// Win32: the exit code, or STILL_ACTIVE while the process runs.
+inline int GetExitCodeProcess(HANDLE h, unsigned long* exitCode)
+{
+	auto* state = pob_win_compat::AsProcess(h);
+	if (state == nullptr || exitCode == nullptr) return 0;
+	if (!state->reaped) {
+		int status = 0;
+		const pid_t r = ::waitpid(state->pid, &status, WNOHANG);
+		if (r == state->pid) { state->reaped = true; state->status = status; }
+		else { *exitCode = STILL_ACTIVE; return 1; }
+	}
+	if (WIFEXITED(state->status))        *exitCode = static_cast<unsigned long>(WEXITSTATUS(state->status));
+	else if (WIFSIGNALED(state->status)) *exitCode = static_cast<unsigned long>(128 + WTERMSIG(state->status));
+	else                                 *exitCode = STILL_ACTIVE;
+	return 1;
+}
+
+inline int TerminateProcess(HANDLE h, unsigned int exitCode)
+{
+	(void)exitCode;
+	auto* state = pob_win_compat::AsProcess(h);
+	if (state == nullptr) return 0;
+	return ::kill(state->pid, SIGKILL) == 0 ? 1 : 0;
+}
+
+inline HANDLE OpenProcess(unsigned long access, int inheritHandle, unsigned long processId)
+{
+	(void)access; (void)inheritHandle;
+	// Confirm the process exists before handing back a handle for it.
+	if (::kill(static_cast<pid_t>(processId), 0) != 0 && errno != EPERM) return nullptr;
+	auto* state = new pob_win_compat::ProcessState();
+	state->pid = static_cast<pid_t>(processId);
+	return reinterpret_cast<HANDLE>(state);
+}
+
+inline int QueryFullProcessImageNameW(HANDLE h, unsigned long flags, wchar_t* buffer, unsigned long* size)
+{
+	(void)flags;
+	auto* state = pob_win_compat::AsProcess(h);
+	if (state == nullptr || buffer == nullptr || size == nullptr) return 0;
+	// Resolving another process's executable path needs either libproc (not
+	// available through this SDK's public headers) or elevated rights. The one
+	// caller uses it to label a diagnostic line, so reporting "unknown" costs
+	// nothing and keeps the shim free of a private dependency.
+	(void)state;
+	buffer[0] = L'\0';
+	*size = 0;
+	return 0;
+}
+
+inline int CreatePipe(HANDLE* readEnd, HANDLE* writeEnd, void* attributes, unsigned long size)
+{
+	(void)attributes; (void)size;
+	if (readEnd == nullptr || writeEnd == nullptr) return 0;
+	int fds[2] = { -1, -1 };
+	if (::pipe(fds) != 0) return 0;
+	*readEnd = pob_win_compat::FdToHandle(fds[0]);
+	*writeEnd = pob_win_compat::FdToHandle(fds[1]);
+	return 1;
+}
+
+// Win32: controls whether a handle is inherited by child processes. The POSIX
+// equivalent is the close-on-exec flag, with the sense inverted.
+inline int SetHandleInformation(HANDLE h, unsigned long mask, unsigned long flags)
+{
+	const int fd = pob_win_compat::HandleToFd(h);
+	if (fd < 0 || (mask & HANDLE_FLAG_INHERIT) == 0) return 0;
+	int current = ::fcntl(fd, F_GETFD);
+	if (current < 0) return 0;
+	if ((flags & HANDLE_FLAG_INHERIT) != 0) current &= ~FD_CLOEXEC;
+	else                                    current |= FD_CLOEXEC;
+	return ::fcntl(fd, F_SETFD, current) == 0 ? 1 : 0;
+}
+
+// --------------------------------------------------------- registry
+
+// Win32 keeps per-user settings in the registry. Nothing equivalent exists
+// here, and the launcher's own settings live in its .ini file, so these report
+// "not found" -- which is the branch the callers already handle for a fresh
+// install that has never written the key.
+
+using HKEY = void*;
+
+#if !defined(HKEY_CURRENT_USER)
+#define HKEY_CURRENT_USER (reinterpret_cast<HKEY>(static_cast<intptr_t>(0x80000001)))
+#endif
+#if !defined(HKEY_LOCAL_MACHINE)
+#define HKEY_LOCAL_MACHINE (reinterpret_cast<HKEY>(static_cast<intptr_t>(0x80000002)))
+#endif
+#if !defined(KEY_READ)
+#define KEY_READ 0x20019u
+#endif
+#if !defined(KEY_WRITE)
+#define KEY_WRITE 0x20006u
+#endif
+#if !defined(REG_SZ)
+#define REG_SZ 1u
+#endif
+#if !defined(REG_DWORD)
+#define REG_DWORD 4u
+#endif
+#if !defined(RRF_RT_REG_SZ)
+#define RRF_RT_REG_SZ 0x00000002u
+#endif
+#if !defined(RRF_RT_REG_DWORD)
+#define RRF_RT_REG_DWORD 0x00000010u
+#endif
+
+inline long RegOpenKeyExW(HKEY key, const wchar_t* subKey, unsigned long options,
+                          unsigned long desired, HKEY* result)
+{
+	(void)key; (void)subKey; (void)options; (void)desired;
+	if (result != nullptr) *result = nullptr;
+	return static_cast<long>(ERROR_FILE_NOT_FOUND);
+}
+
+inline long RegCreateKeyExW(HKEY key, const wchar_t* subKey, unsigned long reserved,
+                            wchar_t* keyClass, unsigned long options, unsigned long desired,
+                            void* security, HKEY* result, unsigned long* disposition)
+{
+	(void)key; (void)subKey; (void)reserved; (void)keyClass; (void)options;
+	(void)desired; (void)security; (void)disposition;
+	if (result != nullptr) *result = nullptr;
+	return static_cast<long>(ERROR_ACCESS_DENIED);
+}
+
+inline long RegQueryValueExW(HKEY key, const wchar_t* name, unsigned long* reserved,
+                             unsigned long* type, unsigned char* data, unsigned long* size)
+{
+	(void)key; (void)name; (void)reserved; (void)type; (void)data; (void)size;
+	return static_cast<long>(ERROR_FILE_NOT_FOUND);
+}
+
+inline long RegSetValueExW(HKEY key, const wchar_t* name, unsigned long reserved,
+                           unsigned long type, const unsigned char* data, unsigned long size)
+{
+	(void)key; (void)name; (void)reserved; (void)type; (void)data; (void)size;
+	return static_cast<long>(ERROR_ACCESS_DENIED);
+}
+
+inline long RegGetValueW(HKEY key, const wchar_t* subKey, const wchar_t* value,
+                         unsigned long flags, unsigned long* type, void* data, unsigned long* size)
+{
+	(void)key; (void)subKey; (void)value; (void)flags; (void)type; (void)data; (void)size;
+	return static_cast<long>(ERROR_FILE_NOT_FOUND);
+}
+
+inline long RegDeleteKeyW(HKEY key, const wchar_t* subKey)
+{
+	(void)key; (void)subKey;
+	return static_cast<long>(ERROR_FILE_NOT_FOUND);
+}
+
+inline long RegDeleteTreeW(HKEY key, const wchar_t* subKey)
+{
+	(void)key; (void)subKey;
+	return static_cast<long>(ERROR_FILE_NOT_FOUND);
+}
+
+inline long RegCloseKey(HKEY key) { (void)key; return static_cast<long>(ERROR_SUCCESS); }
+
+// ------------------------------------------------- named mutexes
+
+// Win32 uses a named mutex for "is another copy already running". The POSIX
+// equivalent with the same lifetime guarantee is an advisory lock on a file in
+// the temp directory: it is released when the process exits, however it exits.
+
+#if !defined(SYNCHRONIZE)
+#define SYNCHRONIZE 0x00100000u
+#endif
+#if !defined(MUTEX_ALL_ACCESS)
+#define MUTEX_ALL_ACCESS 0x001F0001u
+#endif
+
+namespace pob_win_compat {
+
+struct MutexState {
+	static constexpr unsigned int kMagic = 0x4D555431u; // "MUT1"
+	unsigned int magic = kMagic;
+	int fd = -1;
+	std::string path;
+	bool held = false;
+};
+
+inline MutexState* AsMutex(HANDLE h)
+{
+	const uintptr_t v = reinterpret_cast<uintptr_t>(h);
+	if (h == nullptr || h == INVALID_HANDLE_VALUE || v < 0x10000) return nullptr;
+	auto* candidate = reinterpret_cast<MutexState*>(h);
+	return candidate->magic == MutexState::kMagic ? candidate : nullptr;
+}
+
+inline std::string MutexPathFor(const std::string& name)
+{
+	const char* tmp = std::getenv("TMPDIR");
+	std::string dir = (tmp != nullptr && tmp[0] != 0) ? tmp : "/tmp";
+	if (dir.back() != '/') dir.push_back('/');
+	std::string safe;
+	for (char c : name) {
+		safe.push_back((c == '/' || c == '\\' || c == ':') ? '_' : c);
+	}
+	return dir + "pobtools-" + safe + ".lock";
+}
+
+} // namespace pob_win_compat
+
+inline HANDLE CreateMutexW(void* security, int initialOwner, const wchar_t* name)
+{
+	(void)security;
+	const std::string label = (name != nullptr)
+		? pob_win_compat::WideToUtf8(name) : std::string("unnamed");
+	auto* state = new pob_win_compat::MutexState();
+	state->path = pob_win_compat::MutexPathFor(label);
+	state->fd = ::open(state->path.c_str(), O_CREAT | O_RDWR, 0644);
+	if (state->fd < 0) { delete state; return nullptr; }
+	if (initialOwner) {
+		state->held = ::flock(state->fd, LOCK_EX | LOCK_NB) == 0;
+		if (!state->held) {
+			// Someone else holds it: Win32 still returns a handle and reports
+			// the already-exists condition through GetLastError.
+			errno = ERROR_ALREADY_EXISTS;
+		}
+	}
+	return reinterpret_cast<HANDLE>(state);
+}
+
+inline HANDLE OpenMutexW(unsigned long access, int inheritHandle, const wchar_t* name)
+{
+	(void)access; (void)inheritHandle;
+	if (name == nullptr) return nullptr;
+	const std::string path = pob_win_compat::MutexPathFor(pob_win_compat::WideToUtf8(name));
+	struct stat st = {};
+	if (::stat(path.c_str(), &st) != 0) return nullptr;
+	auto* state = new pob_win_compat::MutexState();
+	state->path = path;
+	state->fd = ::open(path.c_str(), O_RDWR);
+	if (state->fd < 0) { delete state; return nullptr; }
+	return reinterpret_cast<HANDLE>(state);
+}
+
+inline int ReleaseMutex(HANDLE h)
+{
+	auto* state = pob_win_compat::AsMutex(h);
+	if (state == nullptr || state->fd < 0) return 0;
+	if (state->held) {
+		::flock(state->fd, LOCK_UN);
+		state->held = false;
+	}
+	return 1;
+}
+
+// ------------------------------------------------- known folders
+
+// Win32 (Shell) identifies well-known directories by GUID. Only Documents is
+// asked for here, so the identifier is reduced to a tag and resolved against
+// the home directory.
+enum PobKnownFolder { PobKnownFolderDocuments = 1 };
+
+#if !defined(FOLDERID_Documents)
+#define FOLDERID_Documents PobKnownFolderDocuments
+#endif
+#if !defined(FOLDERID_LocalAppData)
+#define FOLDERID_LocalAppData 2
+#endif
+#if !defined(FOLDERID_RoamingAppData)
+#define FOLDERID_RoamingAppData 3
+#endif
+
+inline long SHGetKnownFolderPath(int folder, unsigned long flags, HANDLE token, wchar_t** out)
+{
+	(void)flags; (void)token;
+	if (out == nullptr) return -1;
+	*out = nullptr;
+	const char* home = std::getenv("HOME");
+	if (home == nullptr || home[0] == 0) return -1;
+
+	std::string path(home);
+	if (folder == PobKnownFolderDocuments) {
+		path += "/Documents";
+	} else {
+		// The two app-data folders map to where macOS keeps per-app state.
+		path += "/Library/Application Support";
+	}
+	// Win32 hands back memory the caller frees with CoTaskMemFree, which is
+	// mapped to free() below.
+	wchar_t* buffer = static_cast<wchar_t*>(std::malloc((path.size() + 1) * sizeof(wchar_t)));
+	if (buffer == nullptr) return -1;
+	pob_win_compat::Utf8ToWide(path.c_str(), buffer, path.size() + 1);
+	*out = buffer;
+	return 0; // S_OK
+}
+
+inline void CoTaskMemFree(void* p) { std::free(p); }
+inline long CoInitializeEx(void* reserved, unsigned long model) { (void)reserved; (void)model; return 0; }
+inline void CoUninitialize() {}
+
+using HINSTANCE = void*;
+
+inline int _wputenv_s(const wchar_t* name, const wchar_t* value)
+{
+	if (name == nullptr) return EINVAL;
+	const std::string n = pob_win_compat::WideToUtf8(name);
+	if (value == nullptr || value[0] == L'\0') {
+		return ::unsetenv(n.c_str()) == 0 ? 0 : errno;
+	}
+	const std::string v = pob_win_compat::WideToUtf8(value);
+	return ::setenv(n.c_str(), v.c_str(), 1) == 0 ? 0 : errno;
+}
+
+// -------------------------------------------- window class / HRESULT
+
+#if !defined(SUCCEEDED)
+#define SUCCEEDED(hr) (((long)(hr)) >= 0)
+#endif
+#if !defined(FAILED)
+#define FAILED(hr) (((long)(hr)) < 0)
+#endif
+#if !defined(S_OK)
+#define S_OK 0L
+#endif
+#if !defined(E_FAIL)
+#define E_FAIL ((long)0x80004005L)
+#endif
+#if !defined(REG_EXPAND_SZ)
+#define REG_EXPAND_SZ 2u
+#endif
+#if !defined(REG_BINARY)
+#define REG_BINARY 3u
+#endif
+
+using HRESULT = long;
+using ATOM = unsigned short;
+
+// Win32 window classes exist for the WebView2 host window, which is not built
+// on this platform. The calls are reachable from shared code paths, so they
+// answer rather than being absent.
+inline int DestroyWindow(HWND window) { (void)window; return 0; }
+inline int UnregisterClassW(const wchar_t* className, HINSTANCE instance)
+{
+	(void)className; (void)instance;
+	return 0;
+}
+inline int CloseWindow(HWND window) { (void)window; return 0; }
+inline int SetWindowTextW(HWND window, const wchar_t* text) { (void)window; (void)text; return 0; }
+inline int GetWindowTextW(HWND window, wchar_t* text, int count)
+{
+	(void)window;
+	if (text != nullptr && count > 0) text[0] = L'\0';
+	return 0;
+}
+inline int GetWindowTextLengthW(HWND window) { (void)window; return 0; }
+inline int SetForegroundWindow(HWND window) { (void)window; return 0; }
+inline HWND GetTopWindow(HWND parent) { (void)parent; return nullptr; }
+inline HWND GetWindow(HWND window, unsigned int relationship)
+{
+	(void)window; (void)relationship;
+	return nullptr;
+}
+inline int GetWindowThreadProcessId(HWND window, unsigned long* processId)
+{
+	(void)window;
+	if (processId != nullptr) *processId = 0;
+	return 0;
+}
+inline int GetClassNameW(HWND window, wchar_t* className, int count)
+{
+	(void)window;
+	if (className != nullptr && count > 0) className[0] = L'\0';
+	return 0;
+}
+
+#if !defined(GW_OWNER)
+#define GW_OWNER 4u
+#endif
+#if !defined(SMTO_ABORTIFHUNG)
+#define SMTO_ABORTIFHUNG 0x0002u
+#endif
+#if !defined(SMTO_BLOCK)
+#define SMTO_BLOCK 0x0001u
+#endif
+#if !defined(WM_NULL)
+#define WM_NULL 0x0000u
+#endif
+#if !defined(WM_COPYDATA)
+#define WM_COPYDATA 0x004Au
+#endif
+
+inline int SendMessageTimeoutW(HWND window, unsigned int message, WPARAM w, LPARAM l,
+                               unsigned int flags, unsigned int timeout, DWORD_PTR* result)
+{
+	(void)window; (void)message; (void)w; (void)l; (void)flags; (void)timeout;
+	if (result != nullptr) *result = 0;
+	return 0;
+}
+
+inline LRESULT SendMessageW(HWND window, unsigned int message, WPARAM w, LPARAM l)
+{
+	(void)window; (void)message; (void)w; (void)l;
+	return 0;
+}
+
+inline int EnumWindows(int (*callback)(HWND, LPARAM), LPARAM param)
+{
+	(void)callback; (void)param;
+	// No window list to walk: this process's own window is a GLFW window and
+	// the launcher reaches it through GLFW.
+	return 1;
+}
 
 // ------------------------------------------------------- format helpers
 
