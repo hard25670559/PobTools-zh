@@ -345,11 +345,23 @@ inline int ReadFile(HANDLE h, void* buffer, unsigned long size,
 	}
 }
 
+namespace pob_win_compat {
+// Defined further down, beside the named-mutex machinery it needs.
+inline bool CloseMutexHandle(HANDLE h);
+}
+
 inline int CloseHandle(HANDLE h)
 {
-	// Events and files share the handle type, as they do on Windows.
+	// Events, mutexes and files all share the handle type, as they do on
+	// Windows, so each kind is recognised before the plain-descriptor case.
 	if (auto* state = pob_win_compat::AsEvent(h)) {
 		delete state;
+		return 1;
+	}
+	// A named mutex exists while some handle to it does; closing the last one
+	// has to drop the lock that stands for that, or the object is reported as
+	// held for the rest of the process's life.
+	if (pob_win_compat::CloseMutexHandle(h)) {
 		return 1;
 	}
 	const int fd = pob_win_compat::HandleToFd(h);
@@ -2080,6 +2092,18 @@ inline std::string MutexPathFor(const std::string& name)
 		safe.push_back((c == '/' || c == '\\' || c == ':') ? '_' : c);
 	}
 	return dir + "pobtools-" + safe + ".lock";
+}
+
+inline bool CloseMutexHandle(HANDLE h)
+{
+	auto* state = AsMutex(h);
+	if (state == nullptr) return false;
+	if (state->fd >= 0) {
+		if (state->held) ::flock(state->fd, LOCK_UN);
+		::close(state->fd);
+	}
+	delete state;
+	return true;
 }
 
 } // namespace pob_win_compat
