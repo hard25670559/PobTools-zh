@@ -430,6 +430,11 @@ struct FontBuildInput {
 	ImVector<ImWchar> rangesDigits; // kBigFontGlyphs, for ToolPanelHost::big
 	float primaryAscent = 0.8f;     // HheaAscentRatio of the primary face
 	float scale = 1.0f;
+	// Pixels the display puts in a point. The faces are rasterised at
+	// `scale * density` and then told they are `scale` tall, so every
+	// measurement the layout takes is unchanged and only the glyph pixels are
+	// finer. 1 everywhere a point is already a pixel.
+	float density = 1.0f;
 	// Whatever the driver will take. Queried on the main thread (it needs the GL
 	// context), never assumed: ANGLE reports 16384 on the D3D11 backend and as
 	// little as 2048 on D3D9, and the difference decides whether the full CJK
@@ -513,11 +518,13 @@ static void BuildPreciseRanges(ImFontGlyphRangesBuilder& b,
 static std::shared_ptr<const FontBuildInput> PrepareFontInput(
     const std::wstring& fontPath, const std::vector<std::string>& extraTexts,
     const std::vector<const LauncherStrings*>& overlays, float scale, int maxTexOverride,
-    const std::vector<std::wstring>& fallbackPaths = {}, bool preferKorean = false)
+    const std::vector<std::wstring>& fallbackPaths = {}, bool preferKorean = false,
+    float density = 1.0f)
 {
 	auto in = std::make_shared<FontBuildInput>();
 	in->ttf = std::make_shared<const std::vector<unsigned char>>(read_file(fontPath));
 	in->scale = scale;
+	in->density = density;
 	in->preferKorean = preferKorean;
 	for (const std::wstring& p : fallbackPaths) {
 		auto buf = std::make_shared<const std::vector<unsigned char>>(read_file(p));
@@ -620,17 +627,19 @@ static LauncherFonts LoadFonts(ImFontAtlas* atlas, std::shared_ptr<const FontBui
 		// the shipped pair). `in` keeps the buffers alive, same as the primary.
 		ImFontConfig cfgMerge = cfg;
 		cfgMerge.MergeMode = true;
+		const float density = in->density > 0.0f ? in->density : 1.0f;
 		auto addFace = [&](float px, const ImWchar* ranges, bool icons) -> ImFont* {
-			ImFont* f = atlas->AddFontFromMemoryTTF((void*)ttf.data(), (int)ttf.size(), px, &cfg, ranges);
+			const float rasterPx = px * density;
+			ImFont* f = atlas->AddFontFromMemoryTTF((void*)ttf.data(), (int)ttf.size(), rasterPx, &cfg, ranges);
 			for (const auto& fb : in->fallbacks)
-				atlas->AddFontFromMemoryTTF((void*)fb->data(), (int)fb->size(), px, &cfgMerge, ranges);
+				atlas->AddFontFromMemoryTTF((void*)fb->data(), (int)fb->size(), rasterPx, &cfgMerge, ranges);
 			if (icons) {
 				// Last, so a text font that happens to use the same Private Use Area
 				// codepoints keeps them (merge mode skips glyphs already present).
 				// Lucide's em box is all ascent and the glyphs fill ~4%..96% of it:
 				// placed as is, an icon would stand on the baseline and poke above
 				// the line. Shift it so its box is centred on the text line.
-				PobIcon::MergeInto(atlas, px, cfgMerge, in->primaryAscent);
+				PobIcon::MergeInto(atlas, rasterPx, cfgMerge, in->primaryAscent);
 			}
 			return f;
 		};
@@ -644,6 +653,37 @@ static LauncherFonts LoadFonts(ImFontAtlas* atlas, std::shared_ptr<const FontBui
 		out.title = addFace(kTitleFontSize * scale, in->rangesPrecise.Data, true);
 		out.big = addFace(kBigFontSize * scale, in->rangesDigits.Data, false);
 		if (!atlas->Build()) return false;
+		if (density != 1.0f) {
+			// The faces were rasterised `density` times too large so their
+			// pixels would be fine enough for the display. Take that back out
+			// of their geometry -- every measurement, every glyph box -- and
+			// leave the texture coordinates alone. What the layout asks about
+			// them is then exactly what it asked before, and the glyphs it
+			// draws come from a texture with more pixels in it.
+			//
+			// ImGui gained ImFontConfig::RasterizerDensity for this after the
+			// version here; until then, by hand.
+			const float inv = 1.0f / density;
+			ImFont* faces[] = { out.body, out.small, out.title, out.big };
+			ImVector<ImFont*> done;
+			for (ImFont* f : faces) {
+				if (!f || done.contains(f)) continue;
+				done.push_back(f);
+				f->FontSize *= inv;
+				f->Ascent *= inv;
+				f->Descent *= inv;
+				for (ImFontGlyph& g : f->Glyphs) {
+					g.X0 *= inv;
+					g.Y0 *= inv;
+					g.X1 *= inv;
+					g.Y1 *= inv;
+					g.AdvanceX *= inv;
+				}
+				// IndexAdvanceX is a copy of the advances; rebuild it from the
+				// glyphs now that those have moved.
+				f->BuildLookupTable();
+			}
+		}
 		out.texW = atlas->TexWidth;
 		out.texH = atlas->TexHeight;
 		// Height is judged against 8192 even on a 16384 GPU. Past that the atlas
@@ -1089,6 +1129,9 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 		dpiScale = sx > 0.0f ? sx : 1.0f;
 	}
 	float scale = dpiScale * LauncherZoom(cfg.fontSize);
+	// Pixels per point on the display the window is on. Only the faces are
+	// built at this; the layout stays in points (see FontBuildInput::density).
+	float fontDensity = 1.0f;
 
 	// Tabbed window mode: this window becomes the container POB and the tools are
 	// docked into. Decided here because the two modes have different default and
@@ -1341,7 +1384,7 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 	// a tab title, say -- draws as '?', and corrects itself on the swap.
 	std::shared_ptr<const FontBuildInput> fontInput = PrepareFontInput(
 	    ResolveFontPath(exeDir, cfg.fontFile), atlasTexts, strOverlays, scale, glMaxTex,
-	    FallbackFontPaths(exeDir, cfg.fontFile), cfg.locale == L"ko-KR");
+	    FallbackFontPaths(exeDir, cfg.fontFile), cfg.locale == L"ko-KR", fontDensity);
 	FontAtlasWorker fontWorker;
 	fontWorker.Start(fontInput);
 	LauncherFonts fonts = LoadFonts(ImGui::GetIO().Fonts, fontInput, FontScope::Precise);
@@ -1861,7 +1904,8 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 			ImGui::GetIO().Fonts->Clear();
 			fontInput = PrepareFontInput(ResolveFontPath(exeDir, cfg.fontFile),
 			                             atlasTexts, strOverlays, scale, glMaxTex,
-			                             FallbackFontPaths(exeDir, cfg.fontFile), cfg.locale == L"ko-KR");
+			                             FallbackFontPaths(exeDir, cfg.fontFile), cfg.locale == L"ko-KR",
+			                             fontDensity);
 			fonts = LoadFonts(ImGui::GetIO().Fonts, fontInput, FontScope::Full);
 			localeDrawable = ProbeLocaleCoverage(fonts, strStore, &localeMissing);
 			ImGui_ImplOpenGL3_CreateFontsTexture();
@@ -1934,7 +1978,17 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 #if defined(__APPLE__)
 		// Before the frame is built, so everything derived from the window's
 		// size this frame is derived from the right one.
-		pob_apple::HoldLayerScale(win);
+		{
+			const double layerScale = pob_apple::HoldLayerScale(win);
+			// Carried to a display of another density: the faces were built for
+			// the old one and are drawn at the new one's size, which reads soft.
+			// Build them again at this density -- the layout does not move,
+			// only the glyph pixels get finer.
+			if (layerScale > 0.125 && layerScale < 8.0 && (float)layerScale != fontDensity) {
+				fontDensity = (float)layerScale;
+				fontChanged = true;
+			}
+		}
 #endif
 		ImGui_ImplOpenGL3_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
