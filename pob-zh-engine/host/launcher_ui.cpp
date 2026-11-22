@@ -67,6 +67,10 @@
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>   // glfwGetWin32Window, for the docking container
 #endif
+#if defined(__APPLE__)
+#define GLFW_EXPOSE_NATIVE_EGL
+#include <GLFW/glfw3native.h>   // glfwGetEGLDisplay / glfwGetEGLSurface
+#endif
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -1044,6 +1048,41 @@ static std::wstring OpenImageDialog(void* owner)
 
 static int ClampOpacityThunk(int v, int /*fallback*/) { return ClampWindowOpacity(v); }
 
+#if defined(__APPLE__)
+// How much bigger the surface ANGLE really draws into is than the framebuffer
+// GLFW reports for this window. Normally 1: the two agree.
+//
+// They can disagree on a Mac with displays of different pixel densities. ANGLE
+// gives its Metal layer the scale of the display the window was created on and
+// keeps it; GLFW reports the scale of the display the window is on now. A
+// window created on a Retina display and opened on an ordinary one therefore
+// gets a surface twice the size GLFW admits to, and everything drawn with
+// GLFW's numbers lands in one corner of it at half size.
+//
+// ImGui sizes its viewport as DisplaySize * DisplayFramebufferScale, so
+// feeding this ratio in as that scale is what makes the interface fill the
+// window again.
+static float AppleDrawableScale(GLFWwindow* win)
+{
+	int fbW = 0, fbH = 0;
+	glfwGetFramebufferSize(win, &fbW, &fbH);
+	if (fbW <= 0 || fbH <= 0)
+		return 1.0f;
+	EGLDisplay dpy = glfwGetEGLDisplay();
+	EGLSurface surf = glfwGetEGLSurface(win);
+	if (dpy == EGL_NO_DISPLAY || surf == EGL_NO_SURFACE)
+		return 1.0f;
+	EGLint surfW = 0;
+	if (eglQuerySurface(dpy, surf, EGL_WIDTH, &surfW) != EGL_TRUE || surfW <= 0)
+		return 1.0f;
+	const float ratio = (float)surfW / (float)fbW;
+	// Anything outside this range is not a display scale; leave it alone.
+	if (!(ratio > 0.125f && ratio < 8.0f))
+		return 1.0f;
+	return ratio;
+}
+#endif
+
 LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const std::wstring& exeDir,
                             AppUpdater* appUpd)
 {
@@ -1925,6 +1964,23 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 
 		ImGui_ImplOpenGL3_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
+#if defined(__APPLE__)
+		{
+			// ImGui_ImplGlfw_NewFrame has just set this from GLFW's framebuffer
+			// size, which can understate the real surface (see
+			// AppleDrawableScale). Correct it before the frame is built, so the
+			// viewport the renderer derives from it covers the whole window.
+			const float drawScale = AppleDrawableScale(win);
+			ImGui::GetIO().DisplayFramebufferScale = ImVec2(drawScale, drawScale);
+			static float reportedScale = 0.0f;
+			if (drawScale != 1.0f && drawScale != reportedScale) {
+				reportedScale = drawScale;
+				fprintf(stderr,
+				        "pob-zh: the drawing surface is %.2fx the size GLFW reports; "
+				        "scaling the interface to match.\n", (double)drawScale);
+			}
+		}
+#endif
 		ImGui::NewFrame();
 
 		// When the chosen font cannot draw the chosen language, fall back to the
@@ -4121,6 +4177,15 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 		if (present) {
 			int fbW = 0, fbH = 0;
 			glfwGetFramebufferSize(win, &fbW, &fbH);
+#if defined(__APPLE__)
+			// Clearing and reading back have to address the real surface, not
+			// the smaller one GLFW reports (see AppleDrawableScale).
+			{
+				const float drawScale = AppleDrawableScale(win);
+				fbW = (int)((float)fbW * drawScale);
+				fbH = (int)((float)fbH * drawScale);
+			}
+#endif
 			glViewport(0, 0, fbW, fbH);
 			glClearColor(0.043f, 0.063f, 0.078f, 1.0f);
 			glClear(GL_COLOR_BUFFER_BIT);

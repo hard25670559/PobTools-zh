@@ -27,10 +27,16 @@ include(${PROJECT_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake)
 # Configure with -DPOBTOOLS_NO_BUNDLE=ON for a plain directory install instead.
 if (APPLE AND NOT POBTOOLS_NO_BUNDLE)
     set(POBTOOLS_BUNDLE_NAME "PobTools.app")
-    set(CMAKE_INSTALL_PREFIX
-        "${CMAKE_INSTALL_PREFIX}/${POBTOOLS_BUNDLE_NAME}/Contents/MacOS"
-        CACHE PATH "Install root (inside the app bundle)" FORCE)
-    message(STATUS "pob-zh: installing into ${POBTOOLS_BUNDLE_NAME}")
+    # The adjusted prefix is written back to the cache, so configuring an
+    # existing build tree a second time would append another bundle layer and
+    # install into PobTools.app/Contents/MacOS/PobTools.app/Contents/MacOS.
+    # Only adjust a prefix that does not already point inside the bundle.
+    if (NOT CMAKE_INSTALL_PREFIX MATCHES "/${POBTOOLS_BUNDLE_NAME}/Contents/MacOS/?$")
+        set(CMAKE_INSTALL_PREFIX
+            "${CMAKE_INSTALL_PREFIX}/${POBTOOLS_BUNDLE_NAME}/Contents/MacOS"
+            CACHE PATH "Install root (inside the app bundle)" FORCE)
+    endif ()
+    message(STATUS "pob-zh: installing into ${CMAKE_INSTALL_PREFIX}")
 endif ()
 
 set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION "engine")
@@ -669,7 +675,11 @@ if (WIN32 OR APPLE)
         # CURL: the WinHTTP shim (engine/common/win_compat_http.h) is built on
         # it, so the launcher needs it directly here.
         find_package(CURL REQUIRED)
-        target_link_libraries(pob-zh PRIVATE glfw unofficial::angle::libGLESv2 WebP::webpdecoder CURL::libcurl)
+        # libEGL as well as libGLESv2: the launcher asks EGL directly for the
+        # real size of the drawing surface, which is what the viewport has to
+        # match (see host/launcher_ui.cpp).
+        target_link_libraries(pob-zh PRIVATE glfw unofficial::angle::libEGL
+                              unofficial::angle::libGLESv2 WebP::webpdecoder CURL::libcurl)
         if (APPLE)
             # Security: the DPAPI shim (engine/common/win_compat_crypt.h) keeps
             # the two credentials in the login keychain, which is the local
