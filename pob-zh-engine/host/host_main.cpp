@@ -888,6 +888,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
 		return run_engine(engineDir, launchLua);
 	}
 
+#if defined(_WIN32)
 	// glfw3.dll / libGLESv2.dll are delay-loaded: if missing, the first glfw call dies with SEH
 	// 0xC06D007E instead of a loader error, so check up front.
 	if (!file_exists(engineDir + L"glfw3.dll") || !file_exists(engineDir + L"libGLESv2.dll")) {
@@ -907,6 +908,14 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
 			L"PobTools", MB_ICONERROR | MB_OK);
 		return 1;
 	}
+#else
+	// Those two are delay-loaded DLLs on Windows. Here they are linked
+	// statically into the executable (vcpkg builds static libraries for this
+	// triplet), so there is no file to look for -- and looking would report a
+	// broken install for one that is fine, which is the worst kind of startup
+	// error: it fires before the window exists, so nothing can correct it.
+	(void)engineDir;
+#endif
 
 	// Launcher mode. A pending relaunch marker (left by the engine when POB
 	// self-updated) bypasses the UI once and reopens the updated POB directly.
