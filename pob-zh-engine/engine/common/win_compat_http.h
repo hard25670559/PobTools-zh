@@ -404,7 +404,7 @@ inline int WinHttpReceiveResponse(HINTERNET requestHandle, void* reserved)
 
 inline int WinHttpQueryHeaders(HINTERNET requestHandle, unsigned long infoLevel,
                                const wchar_t* name, void* buffer,
-                               unsigned long* bufferLength, unsigned long* index)
+                               uint32_t* bufferLength, uint32_t* index)
 {
 	(void)index;
 	auto* request = pob_win_compat::AsHttpKind<pob_win_compat::HttpRequest>(
@@ -456,7 +456,7 @@ inline int WinHttpQueryHeaders(HINTERNET requestHandle, unsigned long infoLevel,
 	return 1;
 }
 
-inline int WinHttpQueryDataAvailable(HINTERNET requestHandle, unsigned long* available)
+inline int WinHttpQueryDataAvailable(HINTERNET requestHandle, uint32_t* available)
 {
 	auto* request = pob_win_compat::AsHttpKind<pob_win_compat::HttpRequest>(
 		requestHandle, pob_win_compat::kHttpRequest);
@@ -466,7 +466,7 @@ inline int WinHttpQueryDataAvailable(HINTERNET requestHandle, unsigned long* ava
 }
 
 inline int WinHttpReadData(HINTERNET requestHandle, void* buffer,
-                           unsigned long toRead, unsigned long* read)
+                           unsigned long toRead, uint32_t* read)
 {
 	auto* request = pob_win_compat::AsHttpKind<pob_win_compat::HttpRequest>(
 		requestHandle, pob_win_compat::kHttpRequest);

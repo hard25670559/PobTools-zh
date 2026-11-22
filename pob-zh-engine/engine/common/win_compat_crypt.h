@@ -42,7 +42,7 @@
 #endif
 
 struct DATA_BLOB {
-	unsigned long cbData;
+	uint32_t cbData;
 	unsigned char* pbData;
 };
 

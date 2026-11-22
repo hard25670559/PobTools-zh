@@ -97,13 +97,17 @@ inline LPTOP_LEVEL_EXCEPTION_FILTER SetUnhandledExceptionFilter(Filter filter)
 
 // Win32 integer and handle typedefs the engine spells out in its own code.
 // Sized to match the Win64 originals so format strings and casts still line up.
-using DWORD = unsigned long;
+//
+// DWORD and ULONG are 32 bits on Windows, where `long` is 32 bits. Spelling
+// them `unsigned long` here would make them 64 -- which silently changes the
+// layout of every struct that carries a 64-bit value as two of them.
+using DWORD = uint32_t;
 using BOOL = int;
 using BYTE = unsigned char;
 using WORD = unsigned short;
 using UINT = unsigned int;
 using LONG = int;
-using ULONG = unsigned long;
+using ULONG = uint32_t;
 using LONGLONG = long long;
 using ULONGLONG = unsigned long long;
 
@@ -131,7 +135,7 @@ struct CONTEXT {
 	unsigned long long Rax, Rbx, Rcx, Rdx, Rsi, Rdi, Rbp, Rsp;
 	unsigned long long R8, R9, R10, R11, R12, R13, R14, R15;
 	unsigned long long Rip;
-	unsigned long ContextFlags;
+	uint32_t ContextFlags;
 };
 
 #if !defined(CONTEXT_FULL)

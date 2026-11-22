@@ -304,7 +304,7 @@ inline HANDLE CreateFileA(const char* path, unsigned long access, unsigned long 
 }
 
 inline int WriteFile(HANDLE h, const void* data, unsigned long size,
-                     unsigned long* written, void* overlapped)
+                     uint32_t* written, void* overlapped)
 {
 	(void)overlapped;
 	if (written != nullptr) *written = 0;
@@ -328,7 +328,7 @@ inline int WriteFile(HANDLE h, const void* data, unsigned long size,
 }
 
 inline int ReadFile(HANDLE h, void* buffer, unsigned long size,
-                    unsigned long* read, void* overlapped)
+                    uint32_t* read, void* overlapped)
 {
 	(void)overlapped;
 	if (read != nullptr) *read = 0;
@@ -517,13 +517,20 @@ inline void GetSystemTime(SYSTEMTIME* out)
 }
 
 // Win32: a 64-bit count of 100 ns ticks since 1601-01-01, split in two halves.
+// These three carry a 64-bit value as two halves, and callers reach for the
+// halves and the whole interchangeably. The halves must therefore be exactly
+// 32 bits: `unsigned long` is 32 bits on Windows but 64 here, which would make
+// the struct arm 16 bytes against an 8-byte QuadPart, so a value written as
+// halves read back as its low half alone. The log retention sweep did exactly
+// that: its cutoff date came out tens of thousands of years in the future and
+// it deleted today's log.
 struct FILETIME {
-	unsigned long dwLowDateTime;
-	unsigned long dwHighDateTime;
+	uint32_t dwLowDateTime;
+	uint32_t dwHighDateTime;
 };
 
 union ULARGE_INTEGER {
-	struct { unsigned long LowPart; unsigned long HighPart; };
+	struct { uint32_t LowPart; uint32_t HighPart; };
 	unsigned long long QuadPart;
 };
 
@@ -685,7 +692,7 @@ inline int MultiByteToWideChar(unsigned int codePage, unsigned long flags,
 
 // Win32: a signed 64-bit value split in two halves.
 union LARGE_INTEGER {
-	struct { unsigned long LowPart; long HighPart; };
+	struct { uint32_t LowPart; int32_t HighPart; };
 	long long QuadPart;
 };
 
@@ -801,14 +808,14 @@ inline int FileTimeToSystemTime(const FILETIME* in, SYSTEMTIME* out)
 // are provided; the rest of the Win32 structure is omitted rather than filled
 // with values that would be guesses.
 struct WIN32_FIND_DATAW {
-	unsigned long dwFileAttributes;
+	uint32_t dwFileAttributes;
 	FILETIME ftCreationTime;
 	FILETIME ftLastAccessTime;
 	FILETIME ftLastWriteTime;
-	unsigned long nFileSizeHigh;
-	unsigned long nFileSizeLow;
-	unsigned long dwReserved0;      // the reparse tag, when the entry is one
-	unsigned long dwReserved1;
+	uint32_t nFileSizeHigh;
+	uint32_t nFileSizeLow;
+	uint32_t dwReserved0;      // the reparse tag, when the entry is one
+	uint32_t dwReserved1;
 	wchar_t cFileName[MAX_PATH];
 	wchar_t cAlternateFileName[14];
 };
@@ -1034,12 +1041,12 @@ inline int SHCreateDirectoryExW(void* parentWindow, const wchar_t* path, void* s
 #endif
 
 struct WIN32_FILE_ATTRIBUTE_DATA {
-	unsigned long dwFileAttributes;
+	uint32_t dwFileAttributes;
 	FILETIME ftCreationTime;
 	FILETIME ftLastAccessTime;
 	FILETIME ftLastWriteTime;
-	unsigned long nFileSizeHigh;
-	unsigned long nFileSizeLow;
+	uint32_t nFileSizeHigh;
+	uint32_t nFileSizeLow;
 };
 
 inline int GetFileAttributesExW(const wchar_t* path, int level, void* out)
@@ -1742,13 +1749,13 @@ inline int _wcsnicmp(const wchar_t* a, const wchar_t* b, size_t count)
 #endif
 
 struct STARTUPINFOW {
-	unsigned long cb;
+	uint32_t cb;
 	wchar_t* lpReserved;
 	wchar_t* lpDesktop;
 	wchar_t* lpTitle;
 	unsigned long dwX, dwY, dwXSize, dwYSize;
 	unsigned long dwXCountChars, dwYCountChars, dwFillAttribute;
-	unsigned long dwFlags;
+	uint32_t dwFlags;
 	unsigned short wShowWindow;
 	unsigned short cbReserved2;
 	unsigned char* lpReserved2;
@@ -1761,8 +1768,8 @@ using STARTUPINFO = STARTUPINFOW;
 struct PROCESS_INFORMATION {
 	HANDLE hProcess;
 	HANDLE hThread;
-	unsigned long dwProcessId;
-	unsigned long dwThreadId;
+	uint32_t dwProcessId;
+	uint32_t dwThreadId;
 };
 
 namespace pob_win_compat {
@@ -1872,7 +1879,7 @@ inline int CreateProcessW(const wchar_t* applicationName, wchar_t* commandLine,
 }
 
 // Win32: the exit code, or STILL_ACTIVE while the process runs.
-inline int GetExitCodeProcess(HANDLE h, unsigned long* exitCode)
+inline int GetExitCodeProcess(HANDLE h, uint32_t* exitCode)
 {
 	auto* state = pob_win_compat::AsProcess(h);
 	if (state == nullptr || exitCode == nullptr) return 0;
@@ -1906,7 +1913,7 @@ inline HANDLE OpenProcess(unsigned long access, int inheritHandle, unsigned long
 	return reinterpret_cast<HANDLE>(state);
 }
 
-inline int QueryFullProcessImageNameW(HANDLE h, unsigned long flags, wchar_t* buffer, unsigned long* size)
+inline int QueryFullProcessImageNameW(HANDLE h, unsigned long flags, wchar_t* buffer, uint32_t* size)
 {
 	(void)flags;
 	auto* state = pob_win_compat::AsProcess(h);
@@ -1989,7 +1996,7 @@ inline long RegOpenKeyExW(HKEY key, const wchar_t* subKey, unsigned long options
 
 inline long RegCreateKeyExW(HKEY key, const wchar_t* subKey, unsigned long reserved,
                             wchar_t* keyClass, unsigned long options, unsigned long desired,
-                            void* security, HKEY* result, unsigned long* disposition)
+                            void* security, HKEY* result, uint32_t* disposition)
 {
 	(void)key; (void)subKey; (void)reserved; (void)keyClass; (void)options;
 	(void)desired; (void)security; (void)disposition;
@@ -1997,8 +2004,8 @@ inline long RegCreateKeyExW(HKEY key, const wchar_t* subKey, unsigned long reser
 	return static_cast<long>(ERROR_ACCESS_DENIED);
 }
 
-inline long RegQueryValueExW(HKEY key, const wchar_t* name, unsigned long* reserved,
-                             unsigned long* type, unsigned char* data, unsigned long* size)
+inline long RegQueryValueExW(HKEY key, const wchar_t* name, uint32_t* reserved,
+                             uint32_t* type, unsigned char* data, uint32_t* size)
 {
 	(void)key; (void)name; (void)reserved; (void)type; (void)data; (void)size;
 	return static_cast<long>(ERROR_FILE_NOT_FOUND);
@@ -2012,7 +2019,7 @@ inline long RegSetValueExW(HKEY key, const wchar_t* name, unsigned long reserved
 }
 
 inline long RegGetValueW(HKEY key, const wchar_t* subKey, const wchar_t* value,
-                         unsigned long flags, unsigned long* type, void* data, unsigned long* size)
+                         unsigned long flags, uint32_t* type, void* data, uint32_t* size)
 {
 	(void)key; (void)subKey; (void)value; (void)flags; (void)type; (void)data; (void)size;
 	return static_cast<long>(ERROR_FILE_NOT_FOUND);
@@ -2229,7 +2236,7 @@ inline HWND GetWindow(HWND window, unsigned int relationship)
 	(void)window; (void)relationship;
 	return nullptr;
 }
-inline int GetWindowThreadProcessId(HWND window, unsigned long* processId)
+inline int GetWindowThreadProcessId(HWND window, uint32_t* processId)
 {
 	(void)window;
 	if (processId != nullptr) *processId = 0;
@@ -2307,20 +2314,20 @@ inline int EnumWindows(int (*callback)(HWND, LPARAM), LPARAM param)
 #endif
 
 struct OPENFILENAMEW {
-	unsigned long lStructSize;
+	uint32_t lStructSize;
 	HWND hwndOwner;
 	HINSTANCE hInstance;
 	const wchar_t* lpstrFilter;
 	wchar_t* lpstrCustomFilter;
-	unsigned long nMaxCustFilter;
-	unsigned long nFilterIndex;
+	uint32_t nMaxCustFilter;
+	uint32_t nFilterIndex;
 	wchar_t* lpstrFile;
-	unsigned long nMaxFile;
+	uint32_t nMaxFile;
 	wchar_t* lpstrFileTitle;
-	unsigned long nMaxFileTitle;
+	uint32_t nMaxFileTitle;
 	const wchar_t* lpstrInitialDir;
 	const wchar_t* lpstrTitle;
-	unsigned long Flags;
+	uint32_t Flags;
 	unsigned short nFileOffset;
 	unsigned short nFileExtension;
 	const wchar_t* lpstrDefExt;
@@ -2328,8 +2335,8 @@ struct OPENFILENAMEW {
 	void* lpfnHook;
 	const wchar_t* lpTemplateName;
 	void* pvReserved;
-	unsigned long dwReserved;
-	unsigned long FlagsEx;
+	uint32_t dwReserved;
+	uint32_t FlagsEx;
 };
 using OPENFILENAME = OPENFILENAMEW;
 
@@ -2414,11 +2421,11 @@ inline int GetSaveFileNameW(OPENFILENAMEW* ofn)
 #endif
 
 struct OSVERSIONINFOW {
-	unsigned long dwOSVersionInfoSize;
-	unsigned long dwMajorVersion;
-	unsigned long dwMinorVersion;
-	unsigned long dwBuildNumber;
-	unsigned long dwPlatformId;
+	uint32_t dwOSVersionInfoSize;
+	uint32_t dwMajorVersion;
+	uint32_t dwMinorVersion;
+	uint32_t dwBuildNumber;
+	uint32_t dwPlatformId;
 	wchar_t szCSDVersion[128];
 };
 
@@ -2630,14 +2637,14 @@ using HGLOBAL = void*;
 using LPITEMIDLIST = void*;
 
 struct SECURITY_ATTRIBUTES {
-	unsigned long nLength;
+	uint32_t nLength;
 	void* lpSecurityDescriptor;
 	int bInheritHandle;
 };
 
 struct COPYDATASTRUCT {
 	ULONG_PTR dwData;
-	unsigned long cbData;
+	uint32_t cbData;
 	void* lpData;
 };
 
@@ -2646,7 +2653,7 @@ struct MSG {
 	unsigned int message;
 	WPARAM wParam;
 	LPARAM lParam;
-	unsigned long time;
+	uint32_t time;
 	struct { long x, y; } pt;
 };
 
@@ -2679,8 +2686,8 @@ struct WNDCLASSEXW {
 };
 
 struct GUITHREADINFO {
-	unsigned long cbSize;
-	unsigned long flags;
+	uint32_t cbSize;
+	uint32_t flags;
 	HWND hwndActive;
 	HWND hwndFocus;
 	HWND hwndCapture;
@@ -2704,38 +2711,38 @@ struct BROWSEINFOW {
 #pragma pack(push, 1)
 struct BITMAPFILEHEADER {
 	unsigned short bfType;
-	unsigned long bfSize;
+	uint32_t bfSize;
 	unsigned short bfReserved1;
 	unsigned short bfReserved2;
-	unsigned long bfOffBits;
+	uint32_t bfOffBits;
 };
 #pragma pack(pop)
 
 struct BITMAPINFOHEADER {
-	unsigned long biSize;
+	uint32_t biSize;
 	long biWidth;
 	long biHeight;
 	unsigned short biPlanes;
 	unsigned short biBitCount;
-	unsigned long biCompression;
-	unsigned long biSizeImage;
+	uint32_t biCompression;
+	uint32_t biSizeImage;
 	long biXPelsPerMeter;
 	long biYPelsPerMeter;
-	unsigned long biClrUsed;
-	unsigned long biClrImportant;
+	uint32_t biClrUsed;
+	uint32_t biClrImportant;
 };
 
 struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
 	struct {
 		long long PerProcessUserTimeLimit;
 		long long PerJobUserTimeLimit;
-		unsigned long LimitFlags;
+		uint32_t LimitFlags;
 		size_t MinimumWorkingSetSize;
 		size_t MaximumWorkingSetSize;
-		unsigned long ActiveProcessLimit;
+		uint32_t ActiveProcessLimit;
 		uintptr_t Affinity;
-		unsigned long PriorityClass;
-		unsigned long SchedulingClass;
+		uint32_t PriorityClass;
+		uint32_t SchedulingClass;
 	} BasicLimitInformation;
 	struct { unsigned long long ReadOperationCount, WriteOperationCount, OtherOperationCount,
 	                            ReadTransferCount, WriteTransferCount, OtherTransferCount; } IoInfo;
@@ -2982,11 +2989,11 @@ inline int _wfreopen_s(FILE** out, const wchar_t* path, const wchar_t* mode, FIL
 #endif
 
 struct EXCEPTION_RECORD {
-	unsigned long ExceptionCode;
-	unsigned long ExceptionFlags;
+	uint32_t ExceptionCode;
+	uint32_t ExceptionFlags;
 	EXCEPTION_RECORD* ExceptionRecord;
 	void* ExceptionAddress;
-	unsigned long NumberParameters;
+	uint32_t NumberParameters;
 	uintptr_t ExceptionInformation[15];
 };
 
@@ -3002,7 +3009,7 @@ using EXCEPTION_POINTERS = _EXCEPTION_POINTERS;
 // POSIX equivalent is readlink, which the one caller's shape maps onto.
 inline int DeviceIoControl(HANDLE h, unsigned long code, void* input, unsigned long inputSize,
                            void* output, unsigned long outputSize,
-                           unsigned long* returned, void* overlapped)
+                           uint32_t* returned, void* overlapped)
 {
 	(void)h; (void)code; (void)input; (void)inputSize;
 	(void)output; (void)outputSize; (void)overlapped;

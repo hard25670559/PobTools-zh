@@ -41,7 +41,7 @@
 using NTSTATUS = long;
 using UCHAR = unsigned char;
 using PUCHAR = unsigned char*;
-using ULONG = unsigned long;
+using ULONG = uint32_t;
 
 using BCRYPT_ALG_HANDLE = void*;
 using BCRYPT_HASH_HANDLE = void*;
@@ -78,8 +78,8 @@ using BCRYPT_KEY_HANDLE = void*;
 
 // A BCRYPT_ECCPUBLIC_BLOB: the header, then X and Y of the public point.
 struct BCRYPT_ECCKEY_BLOB {
-	unsigned long dwMagic;
-	unsigned long cbKey;
+	uint32_t dwMagic;
+	uint32_t cbKey;
 };
 
 namespace pob_win_compat {
@@ -190,7 +190,7 @@ inline NTSTATUS BCryptCloseAlgorithmProvider(BCRYPT_ALG_HANDLE handle, unsigned 
 // Win32 asks for buffer sizes before creating a hash; here nothing has to be
 // pre-allocated, so the answers are the fixed sizes of SHA-256.
 inline NTSTATUS BCryptGetProperty(void* handle, const wchar_t* property, unsigned char* output,
-                                  unsigned long size, unsigned long* written, unsigned long flags)
+                                  unsigned long size, uint32_t* written, unsigned long flags)
 {
 	(void)handle; (void)flags;
 	if (property == nullptr || written == nullptr) return STATUS_UNSUCCESSFUL;
@@ -380,7 +380,7 @@ inline NTSTATUS BCryptFinalizeKeyPair(BCRYPT_KEY_HANDLE handle, unsigned long fl
 
 inline NTSTATUS BCryptExportKey(BCRYPT_KEY_HANDLE key, BCRYPT_KEY_HANDLE exportKey,
                                 const wchar_t* blobType, unsigned char* output,
-                                unsigned long outputSize, unsigned long* written,
+                                unsigned long outputSize, uint32_t* written,
                                 unsigned long flags)
 {
 	(void)key; (void)exportKey; (void)blobType; (void)output; (void)outputSize; (void)flags;
@@ -391,7 +391,7 @@ inline NTSTATUS BCryptExportKey(BCRYPT_KEY_HANDLE key, BCRYPT_KEY_HANDLE exportK
 inline NTSTATUS BCryptSignHash(BCRYPT_KEY_HANDLE key, void* paddingInfo,
                                unsigned char* digest, unsigned long digestSize,
                                unsigned char* signature, unsigned long signatureSize,
-                               unsigned long* written, unsigned long flags)
+                               uint32_t* written, unsigned long flags)
 {
 	(void)key; (void)paddingInfo; (void)digest; (void)digestSize;
 	(void)signature; (void)signatureSize; (void)flags;
