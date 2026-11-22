@@ -3,6 +3,12 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+// rpcndr.h, which windows.h pulls in, defines `small` as `char`. Nothing in
+// this program wants that, and anything with a member or variable of that name
+// -- PobUi::WidgetFonts::small, for one -- stops compiling in every file that
+// reaches windows.h before it. This header is included from the top of some of
+// those files, so it takes the definition back out.
+#undef small
 #else
 #include "../engine/common/win_compat.h"
 #endif
