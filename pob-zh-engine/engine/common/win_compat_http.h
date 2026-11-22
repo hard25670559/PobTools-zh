@@ -280,8 +280,13 @@ inline int WinHttpSetOption(HINTERNET handle, unsigned long option, void* value,
 	if (session == nullptr) return 0;
 
 	if (option == WINHTTP_OPTION_REDIRECT_POLICY && value != nullptr) {
+		// The caller passes a DWORD, which is 32 bits. Reading it as
+		// `unsigned long` would read 64 here and pick up whatever sits next to
+		// it -- the policy would then read as "follow", and the caller's own
+		// redirect handling, which is what keeps a redirect from leaving the
+		// expected host, would never see the redirect at all.
 		session->followRedirects =
-			*static_cast<unsigned long*>(value) != WINHTTP_OPTION_REDIRECT_POLICY_NEVER;
+			*static_cast<const DWORD*>(value) != WINHTTP_OPTION_REDIRECT_POLICY_NEVER;
 		return 1;
 	}
 	if (option == WINHTTP_OPTION_DECOMPRESSION) {
@@ -411,18 +416,21 @@ inline int WinHttpQueryHeaders(HINTERNET requestHandle, unsigned long infoLevel,
 		requestHandle, pob_win_compat::kHttpRequest);
 	if (request == nullptr || bufferLength == nullptr) return 0;
 
-	// Numeric form: the status code, written as a DWORD.
+	// Numeric form: the status code, written as a DWORD -- which is 32 bits.
+	// Sizing this as `unsigned long` would ask the caller for 8 bytes where
+	// Win32 asks for 4, and every such query would fail: the status code then
+	// reads as 0 and every response looks like a failure.
 	if ((infoLevel & WINHTTP_QUERY_FLAG_NUMBER) != 0) {
-		if (buffer == nullptr || *bufferLength < sizeof(unsigned long)) {
-			*bufferLength = sizeof(unsigned long);
+		if (buffer == nullptr || *bufferLength < sizeof(DWORD)) {
+			*bufferLength = sizeof(DWORD);
 			return 0;
 		}
 		const unsigned long base = infoLevel & ~WINHTTP_QUERY_FLAG_NUMBER;
-		unsigned long value = 0;
+		DWORD value = 0;
 		if (base == WINHTTP_QUERY_STATUS_CODE) {
-			value = static_cast<unsigned long>(request->status);
+			value = static_cast<DWORD>(request->status);
 		} else if (base == WINHTTP_QUERY_CONTENT_LENGTH) {
-			value = static_cast<unsigned long>(request->body.size());
+			value = static_cast<DWORD>(request->body.size());
 		}
 		std::memcpy(buffer, &value, sizeof(value));
 		*bufferLength = sizeof(value);

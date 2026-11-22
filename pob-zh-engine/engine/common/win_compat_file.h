@@ -2093,13 +2093,19 @@ inline HANDLE CreateMutexW(void* security, int initialOwner, const wchar_t* name
 	state->path = pob_win_compat::MutexPathFor(label);
 	state->fd = ::open(state->path.c_str(), O_CREAT | O_RDWR, 0644);
 	if (state->fd < 0) { delete state; return nullptr; }
-	if (initialOwner) {
-		state->held = ::flock(state->fd, LOCK_EX | LOCK_NB) == 0;
-		if (!state->held) {
-			// Someone else holds it: Win32 still returns a handle and reports
-			// the already-exists condition through GetLastError.
-			errno = ERROR_ALREADY_EXISTS;
-		}
+
+	// A Win32 named mutex exists for exactly as long as some handle to it
+	// does, and OpenMutex succeeds while it exists. A lock file cannot say
+	// that by existing -- it outlives every process that ever touched it --
+	// so HOLDING A LOCK on it is what stands for "a handle is open". Shared,
+	// because any number of handles may be open at once; exclusive when the
+	// caller asked to own it.
+	state->held = ::flock(state->fd, initialOwner ? (LOCK_EX | LOCK_NB)
+	                                              : (LOCK_SH | LOCK_NB)) == 0;
+	if (initialOwner && !state->held) {
+		// Someone else owns it: Win32 still returns a handle and reports the
+		// already-exists condition through GetLastError.
+		errno = EEXIST;
 	}
 	return reinterpret_cast<HANDLE>(state);
 }
@@ -2109,12 +2115,23 @@ inline HANDLE OpenMutexW(unsigned long access, int inheritHandle, const wchar_t*
 	(void)access; (void)inheritHandle;
 	if (name == nullptr) return nullptr;
 	const std::string path = pob_win_compat::MutexPathFor(pob_win_compat::WideToUtf8(name));
-	struct stat st = {};
-	if (::stat(path.c_str(), &st) != 0) return nullptr;
+	const int fd = ::open(path.c_str(), O_RDWR);
+	if (fd < 0) return nullptr;   // never created: no such object
+
+	// The file outlives the processes that used it, so its mere existence
+	// proves nothing -- a stale lock file from a previous run would report
+	// every named mutex as held forever. Taking the lock is the real test: if
+	// it is free, nobody holds a handle, and the Win32 answer is "no such
+	// object".
+	if (::flock(fd, LOCK_EX | LOCK_NB) == 0) {
+		::flock(fd, LOCK_UN);
+		::close(fd);
+		errno = ENOENT;
+		return nullptr;
+	}
 	auto* state = new pob_win_compat::MutexState();
 	state->path = path;
-	state->fd = ::open(path.c_str(), O_RDWR);
-	if (state->fd < 0) { delete state; return nullptr; }
+	state->fd = fd;
 	return reinterpret_cast<HANDLE>(state);
 }
 
