@@ -796,11 +796,6 @@ int sys_video_c::Apply(sys_vidSet_s* set)
 		glfwWindowHint(GLFW_RESIZABLE, !!(cur.flags & VID_RESIZABLE));
 		glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE); // Start hidden to not flash the user with a stock window.
 		glfwWindowHint(GLFW_MAXIMIZED, GLFW_FALSE); // Start restored in order to position the window before maximizing.
-#if defined(__APPLE__)
-		// Ask for a framebuffer measured in points; HoldAppleLayerScale
-		// keeps the layer it is shown through at the matching density.
-		glfwWindowHint(GLFW_SCALE_FRAMEBUFFER, GLFW_FALSE);
-#endif
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
 		glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_EGL_CONTEXT_API);
 		glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -1048,14 +1043,15 @@ void sys_video_c::HoldAppleLayerScale()
 	if (!view) return;
 	pob_id layer = ((pob_id(*)(pob_id, pob_sel))objc_msgSend)(view, sel_getUid("layer"));
 	if (!layer) return;
+	const double want = ((double(*)(pob_id, pob_sel))objc_msgSend)(window, sel_getUid("backingScaleFactor"));
 	const double have = ((double(*)(pob_id, pob_sel))objc_msgSend)(layer, sel_getUid("contentsScale"));
-	if (have < 0.99 || have > 1.01) {
-		((void(*)(pob_id, pob_sel, double))objc_msgSend)(layer, sel_getUid("setContentsScale:"), 1.0);
+	if (want > 0.125 && want < 8.0 && (have < want - 0.01 || have > want + 0.01)) {
+		((void(*)(pob_id, pob_sel, double))objc_msgSend)(layer, sel_getUid("setContentsScale:"), want);
 		pob_id subs = ((pob_id(*)(pob_id, pob_sel))objc_msgSend)(layer, sel_getUid("sublayers"));
 		const long count = subs ? ((long(*)(pob_id, pob_sel))objc_msgSend)(subs, sel_getUid("count")) : 0;
 		for (long i = 0; i < count; ++i) {
 			pob_id sub = ((pob_id(*)(pob_id, pob_sel, long))objc_msgSend)(subs, sel_getUid("objectAtIndex:"), i);
-			if (sub) ((void(*)(pob_id, pob_sel, double))objc_msgSend)(sub, sel_getUid("setContentsScale:"), 1.0);
+			if (sub) ((void(*)(pob_id, pob_sel, double))objc_msgSend)(sub, sel_getUid("setContentsScale:"), want);
 		}
 	}
 	// Some displays refuse it and hand the layer their own density back. Draw

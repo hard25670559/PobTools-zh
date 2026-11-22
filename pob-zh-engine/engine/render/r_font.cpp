@@ -721,7 +721,12 @@ r_font_c::FontHeightEntry r_font_c::FindFontHeight(int height) {
 void r_font_c::DrawTextLine(scp_t pos, int align, int height, col4_t col, std::u32string_view str)
 {
 	// Check if the line is visible
-	if (pos[Y] >= renderer->sys->video->vid.size[1] || pos[Y] <= -height) {
+	// Against the height POB draws in, not the window's size in points. The
+	// two are the same until the display has more than one pixel per point,
+	// where every line below the window's half would otherwise be taken for
+	// off-screen and skipped -- labels and button captions vanish while the
+	// frames around them, drawn another way, stay.
+	if (pos[Y] >= renderer->VirtualScreenHeight() || pos[Y] <= -height) {
 		// Just process the colour codes
 		while (!str.empty()) {
 			// Check for escape character
