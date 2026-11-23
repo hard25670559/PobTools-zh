@@ -140,6 +140,20 @@ extern "C" SIMPLEGRAPHIC_DLL_PUBLIC void* PobEngineOpen(int argc, char** argv)
 // For a host that runs its own event loop -- the launcher, which has a window
 // of its own -- and only needs the engines' window calls to happen on this
 // thread.
+// Ask a POB to finish at the end of its next frame.
+//
+// For a host that is shutting down while POBs are still open: it sets the same
+// flag closing the window would, so the engine's own thread leaves its loop,
+// runs POB's shutdown and returns from PobEngineStep.
+extern "C" SIMPLEGRAPHIC_DLL_PUBLIC void PobEngineRequestClose(void* handle)
+{
+	if (!handle) return;
+	auto* sys = (sys_main_c*)handle;
+	if (GLFWwindow* w = (GLFWwindow*)sys->video->GetWindowHandle()) {
+		glfwSetWindowShouldClose(w, GLFW_TRUE);
+	}
+}
+
 extern "C" SIMPLEGRAPHIC_DLL_PUBLIC void PobEngineRunMainWork(void)
 {
 	sys_main_c::RunMainThreadWork();

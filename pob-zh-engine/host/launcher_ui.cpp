@@ -1099,10 +1099,42 @@ extern "C" void PobEngineRunMainWork(void);
 extern "C" void* PobEngineOpen(int argc, char** argv);
 extern "C" int PobEngineStep(void* handle);
 extern "C" int PobEngineClose(void* handle);
+extern "C" void PobEngineRequestClose(void* handle);
 
-// POBs opened inside this process. Each runs its frames on a thread of its own;
-// this list is only here to join them when the launcher goes away.
-static std::vector<std::thread> s_pobThreads;
+// POBs opened inside this process, each running its frames on a thread of its
+// own. Kept so the launcher can close them before it goes away: a std::thread
+// still joinable when the process exits aborts it, which is what Cmd+Q did.
+struct InProcessPob {
+	void* handle = nullptr;
+	std::thread worker;
+	// Set by the worker as it leaves. Waited on rather than joining straight
+	// away: a POB's last frame destroys its window, which it hands back to the
+	// main thread -- blocked in join(), the main thread would never run it and
+	// the two would wait on each other forever.
+	std::shared_ptr<std::atomic<bool>> done = std::make_shared<std::atomic<bool>>(false);
+};
+static std::vector<InProcessPob> s_pobs;
+
+// Asks every POB still open to finish, then waits for it.
+//
+// On the main thread, which is where the engines hand their window work back
+// (PobEngineRunMainWork) -- pumped here too, or a POB waiting on one of those
+// would never reach its last frame.
+static void CloseAllPobs()
+{
+	for (auto& p : s_pobs) {
+		if (p.handle) PobEngineRequestClose(p.handle);
+	}
+	for (auto& p : s_pobs) {
+		while (!p.done->load()) {
+			PobEngineRunMainWork();
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+		PobEngineRunMainWork();
+		if (p.worker.joinable()) p.worker.join();
+	}
+	s_pobs.clear();
+}
 
 // Opens one, on this thread -- macOS makes windows nowhere else -- and hands it
 // to a thread of its own. False if the engine refused it.
@@ -1116,10 +1148,13 @@ static bool OpenPobInProcess(const std::wstring& launchLua)
 	void* handle = PobEngineOpen(1, argv);
 	if (!handle) return false;
 
-	s_pobThreads.emplace_back([handle] {
+	auto done = std::make_shared<std::atomic<bool>>(false);
+	std::thread worker([handle, done] {
 		while (PobEngineStep(handle)) {}
 		PobEngineClose(handle);
+		done->store(true);
 	});
+	s_pobs.push_back(InProcessPob{ handle, std::move(worker), done });
 	return true;
 }
 #endif
@@ -4293,6 +4328,12 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 		LiveResize::MainScope inMain;
 		frame(false);
 	}
+#if defined(__APPLE__)
+	// Before anything else is torn down: POBs opened in this process are this
+	// thread's windows, and a frame loop still running when the process exits
+	// takes the process with it (CloseAllPobs).
+	CloseAllPobs();
+#endif
 	LiveResize::SetDraw(nullptr); // the frame's state is about to be torn down
 
 	syncCfgFromUi(); // host_main saves cfg after this returns
