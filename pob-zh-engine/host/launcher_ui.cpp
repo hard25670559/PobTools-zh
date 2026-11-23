@@ -1128,6 +1128,9 @@ static bool OpenPobInProcess(const std::wstring& launchLua)
 LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const std::wstring& exeDir,
                             AppUpdater* appUpd)
 {
+	// Fixed for as long as this launcher window is up (see keepOpen below).
+	const LaunchExitMode sessionExitMode = cfg.exitMode;
+
 #if defined(__APPLE__)
 	// ANGLE picks a rendering backend per platform; on macOS that is Metal,
 	// and the choice has to be made before glfwInit. The hints after this
@@ -2556,7 +2559,12 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 		// window up; the other two modes take the original path (set `launch`,
 		// ShowLauncher returns). Tabbed mode always takes the detached path: this
 		// window IS the one POB lives in.
-		const bool keepOpen = tabbed || (cfg.exitMode == LaunchExitMode::KeepOpen);
+		// The mode this launcher started with, not the one in the settings.
+		//
+		// Changing it while POB is open would leave the two disagreeing: builds
+		// opened under one mode, the launcher behaving as the other. Saved
+		// right away, it takes effect the next time the launcher starts.
+		const bool keepOpen = tabbed || (sessionExitMode == LaunchExitMode::KeepOpen);
 		PobUi::SectionHeader(S.gamesSection, inner);
 		ImGui::Dummy(ImVec2(0, D(4.0f)));
 		if (pobDlJob.valid() && pobDlJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
@@ -3213,8 +3221,13 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 				// POB lives -- so it is disabled there and says so.
 				const char* opts[3] = { S.exitModeClose, S.returnAfterExit, S.exitModeKeepOpen };
 				const float selW = std::floor(D(300.0f));
-				PobUi::RowBegin(S.sectionLaunch, tabbed ? S.exitModeTabbedNote : nullptr, selW, 0.0f, nullptr, tabbed);
+				// Always said, not only once it differs: the mode in force is
+				// the one this launcher started with (see sessionExitMode), so
+				// someone changing it should know before, not after.
 				int em = (int)cfg.exitMode;
+				PobUi::RowBegin(S.sectionLaunch,
+				                tabbed ? S.exitModeTabbedNote : S.exitModeNextStart,
+				                selW, 0.0f, nullptr, tabbed);
 				if (PobUi::Select("##exitmode", &em, opts, nullptr, 3, selW, !tabbed) && !tabbed) {
 					cfg.exitMode = (LaunchExitMode)em;
 					saveNow();

@@ -320,6 +320,7 @@
 	X(winModeSeparateShort, u8"各自獨立",                  u8"Separate")                              \
 	X(winModeTabbedShort, u8"啟動器分頁",                  u8"Launcher tabs")                         \
 	X(exitModeTabbedNote, u8"分頁模式下不適用：POB 就開在啟動器裡", u8"Not used in tabbed mode: POB opens inside the launcher") \
+	X(exitModeNextStart, u8"下次啟動啟動器時生效", u8"Takes effect the next time the launcher starts") \
 	X(relaunchNow,       u8"立即重開",                     u8"Restart now")                           \
 	X(proxyHintShort,    u8"更新檢查、翻譯資料與圖示下載都會經過這裡，例如 127.0.0.1:7890", \
 	                     u8"Update checks, translation data and icon downloads go through it, e.g. 127.0.0.1:7890") \
