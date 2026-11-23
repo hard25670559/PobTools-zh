@@ -5,6 +5,7 @@
 // Platform: Windows
 //
 
+#include "imgui.h"
 #include "system/win/sys_local.h"
 #include "startup_trace.h"
 
@@ -98,12 +99,27 @@ extern "C" SIMPLEGRAPHIC_DLL_PUBLIC void* PobEngineOpen(int argc, char** argv)
 {
 	startup_trace_begin("engine");
 	startup_trace_mark("PobEngineOpen entered");
+
+	// Whatever interface state this thread already had.
+	//
+	// Starting POB makes one of its own and leaves it current. The caller may
+	// be a program with a window of its own -- the launcher -- whose own state
+	// this thread was holding: left pointing at POB's, its drawing and its
+	// clicks all go to POB instead, and its window sits there dead.
+	//
+	// POB's own thread sets the pointer for itself at the top of every frame
+	// (core_IMain::MakeImGuiCurrent), so handing this one back costs it
+	// nothing.
+	ImGuiContext* callersUi = ImGui::GetCurrentContext();
+
 	auto* sys = new sys_main_c;
 	if (!sys->RunStart(argc, argv)) {
 		sys->RunFinish();
 		delete sys;
+		ImGui::SetCurrentContext(callersUi);
 		return nullptr;
 	}
+	ImGui::SetCurrentContext(callersUi);
 	// Let go of the link to the graphics card before handing this engine over.
 	//
 	// A link belongs to one thread at a time. Opening the window takes it on
