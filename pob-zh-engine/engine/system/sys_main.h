@@ -71,6 +71,11 @@ public:
 	std::optional<std::filesystem::path> userPath;
 	std::optional<std::string> userPathReason;
 
+	// This POB sets its own frame pace. False when something outside is
+	// stepping several of them in turn and paces the round itself; sleeping
+	// off a frame budget then stops every other POB too (see ui_main.cpp).
+	virtual bool	PacesItsOwnFrames() = 0;
+
 	virtual int		GetTime() = 0;
 	virtual void	Sleep(int msec) = 0;
 	virtual bool	IsKeyDown(byte key) = 0;

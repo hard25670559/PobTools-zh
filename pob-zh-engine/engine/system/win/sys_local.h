@@ -5,6 +5,8 @@
 // Platform: Windows
 //
 
+#include <functional>
+#include <mutex>
 #include "common.h"
 
 #include "system.h"
@@ -30,6 +32,7 @@
 class sys_main_c: public sys_IMain {
 public:
 	// Interface
+	bool	PacesItsOwnFrames() { return pollsOwnEvents; }
 	int		GetTime();
 	void	Sleep(int msec);
 	bool	IsKeyDown(byte key);
@@ -70,6 +73,43 @@ public:
 	// drives the frame loop; false when something outside steps several
 	// engines and takes the events once for all of them.
 	bool	pollsOwnEvents = false;
+
+	// Held while this engine runs a frame, and by every window callback that
+	// touches it.
+	//
+	// Events arrive on the main thread -- macOS takes them nowhere else -- so
+	// with the frame loop on a thread of its own the two meet in POB's state:
+	// a click rewriting what a frame is in the middle of reading. One at a
+	// time. Frames are milliseconds and callbacks are shorter still, so the
+	// wait is never felt.
+	std::recursive_mutex frameLock;
+
+	// Input waits here until this engine's own thread picks it up.
+	//
+	// macOS delivers events on the main thread and nowhere else, and handling
+	// one runs POB's script. With the frame loop on a thread of its own that
+	// means two threads in the same script at once -- which no lock makes
+	// safe, because the script engine assumes the thread it is on stays the
+	// same. So the main thread only writes down what happened; the engine's
+	// thread replays it at the top of its next frame, and everything that
+	// touches POB or the interface stays on that one thread.
+	std::vector<std::function<void()>> pendingInput;
+	std::mutex inputLock;
+
+	void	QueueInput(std::function<void()> fn);
+	void	DrainInput();
+
+	// The other direction: work that only the main thread may do.
+	//
+	// macOS refuses window operations -- the title, the size, the position --
+	// anywhere but the main thread, and raises rather than ignoring it. POB
+	// sets its window title from the script, which runs on this engine's own
+	// thread, so the call is handed back instead of made there.
+	//
+	// One queue for the whole process: there is one main thread, and it runs
+	// these where it takes events (PobEnginePollEvents).
+	static void	OnMainThread(std::function<void()> fn);
+	static void	RunMainThreadWork();
 	bool	minimized = false;
 	// POB_ZH_HEADLESS=1: no GLFW window, frame loop paced by stdin requests,
 	// errors go to the failure log and a non-zero exit code instead of a

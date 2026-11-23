@@ -834,13 +834,20 @@ int sys_video_c::Apply(sys_vidSet_s* set)
 		// callbacks off (r_main.cpp) nothing else tells it.
 		glfwSetWindowFocusCallback(wnd, [](GLFWwindow* wnd, int focused) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
+			if (!sys) return;
+			sys->QueueInput([=] {
 			if (sys->core) sys->core->MakeImGuiCurrent();
 			ImGui_ImplGlfw_WindowFocusCallback(wnd, focused);
 			});
+		});
 		glfwSetCursorEnterCallback(wnd, [](GLFWwindow* wnd, int entered) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
-			// This window's engine, not whichever was created last
+			if (!sys) return;
+			sys->QueueInput([=] {
+			// Not while that engine is running a frame (sys_local.h), and
+			// this window's engine, not whichever was created last
 			// (core_IMain::MakeImGuiCurrent).
+			std::lock_guard<std::recursive_mutex> hold(sys->frameLock);
 			if (sys->core) sys->core->MakeImGuiCurrent();
 			ImGui_ImplGlfw_CursorEnterCallback(wnd, entered);
 			auto video = (sys_video_c*)sys->video;
@@ -850,10 +857,15 @@ int sys_video_c::Apply(sys_vidSet_s* set)
 				video->lastCursorPos.reset();
 			}
 			});
+		});
 		glfwSetCursorPosCallback(wnd, [](GLFWwindow* wnd, double x, double y) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
-			// This window's engine, not whichever was created last
+			if (!sys) return;
+			sys->QueueInput([=] {
+			// Not while that engine is running a frame (sys_local.h), and
+			// this window's engine, not whichever was created last
 			// (core_IMain::MakeImGuiCurrent).
+			std::lock_guard<std::recursive_mutex> hold(sys->frameLock);
 			if (sys->core) sys->core->MakeImGuiCurrent();
 			ImGui_ImplGlfw_CursorPosCallback(wnd, x, y);
 			if (ImGui::GetIO().WantCaptureMouse) {
@@ -862,55 +874,90 @@ int sys_video_c::Apply(sys_vidSet_s* set)
 			auto video = (sys_video_c*)sys->video;
 			video->lastCursorPos = CursorPos{ (int)x, (int)y };
 			});
+		});
 		glfwSetWindowCloseCallback(wnd, [](GLFWwindow* wnd) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
-			// This window's engine, not whichever was created last
+			if (!sys) return;
+			sys->QueueInput([=] {
+			// Not while that engine is running a frame (sys_local.h), and
+			// this window's engine, not whichever was created last
 			// (core_IMain::MakeImGuiCurrent).
+			std::lock_guard<std::recursive_mutex> hold(sys->frameLock);
 			if (sys->core) sys->core->MakeImGuiCurrent();
 			glfwSetWindowShouldClose(wnd, sys->initialised && sys->core->CanExit());
 			});
+		});
 		glfwSetWindowIconifyCallback(wnd, [](GLFWwindow* wnd, int value) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
-			// This window's engine, not whichever was created last
+			if (!sys) return;
+			sys->QueueInput([=] {
+			// Not while that engine is running a frame (sys_local.h), and
+			// this window's engine, not whichever was created last
 			// (core_IMain::MakeImGuiCurrent).
+			std::lock_guard<std::recursive_mutex> hold(sys->frameLock);
 			if (sys->core) sys->core->MakeImGuiCurrent();
 			sys->minimized = value == 1 ? true : false;
 			});
+		});
 		glfwSetFramebufferSizeCallback(wnd, [](GLFWwindow* wnd, int width, int height) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
-			// This window's engine, not whichever was created last
+			if (!sys) return;
+			sys->QueueInput([=] {
+			// Not while that engine is running a frame (sys_local.h), and
+			// this window's engine, not whichever was created last
 			// (core_IMain::MakeImGuiCurrent).
+			std::lock_guard<std::recursive_mutex> hold(sys->frameLock);
 			if (sys->core) sys->core->MakeImGuiCurrent();
 			sys->video->FramebufferSizeChanged(width, height);
 			});
+		});
 		glfwSetWindowSizeCallback(wnd, [](GLFWwindow* wnd, int width, int height) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
-			// This window's engine, not whichever was created last
+			if (!sys) return;
+			sys->QueueInput([=] {
+			// Not while that engine is running a frame (sys_local.h), and
+			// this window's engine, not whichever was created last
 			// (core_IMain::MakeImGuiCurrent).
+			std::lock_guard<std::recursive_mutex> hold(sys->frameLock);
 			if (sys->core) sys->core->MakeImGuiCurrent();
 			bool maximized = glfwGetWindowAttrib(wnd, GLFW_MAXIMIZED);
 			sys->video->SizeChanged(width, height, maximized);
 			});
+		});
 		glfwSetWindowMaximizeCallback(wnd, [](GLFWwindow* wnd, int maximized) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
-			// This window's engine, not whichever was created last
+			if (!sys) return;
+			sys->QueueInput([=] {
+			// Not while that engine is running a frame (sys_local.h), and
+			// this window's engine, not whichever was created last
 			// (core_IMain::MakeImGuiCurrent).
+			std::lock_guard<std::recursive_mutex> hold(sys->frameLock);
 			if (sys->core) sys->core->MakeImGuiCurrent();
 			int width{}, height{};
 			glfwGetWindowSize(wnd, &width, &height);
 			sys->video->SizeChanged(width, height, maximized == GLFW_TRUE);
 			});
+		});
 		glfwSetWindowPosCallback(wnd, [](GLFWwindow* wnd, int x, int y) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
-			// This window's engine, not whichever was created last
+			if (!sys) return;
+			sys->QueueInput([=] {
+			// Not while that engine is running a frame (sys_local.h), and
+			// this window's engine, not whichever was created last
 			// (core_IMain::MakeImGuiCurrent).
+			std::lock_guard<std::recursive_mutex> hold(sys->frameLock);
 			if (sys->core) sys->core->MakeImGuiCurrent();
 			sys->video->PosChanged(x, y);
 			});
+		});
 		glfwSetCharCallback(wnd, [](GLFWwindow* wnd, uint32_t codepoint) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
-			// This window's engine, not whichever was created last
+			if (!sys) return;
+			sys->QueueInput([=] {
+			// Not while that engine is running a frame (sys_local.h), and
+			// this window's engine, not whichever was created last
 			// (core_IMain::MakeImGuiCurrent).
+			std::lock_guard<std::recursive_mutex> hold(sys->frameLock);
 			if (sys->core) sys->core->MakeImGuiCurrent();
 			ImGui_ImplGlfw_CharCallback(wnd, codepoint);
 			/* Always pass character events to POB (no ImGui guard here).
@@ -919,10 +966,15 @@ int sys_video_c::Apply(sys_vidSet_s* set)
 			 * ImGui debug windows don't need exclusive char capture. */
 			sys->core->KeyEvent(codepoint, KE_CHAR);
 			});
+		});
 		glfwSetKeyCallback(wnd, [](GLFWwindow* wnd, int key, int scancode, int action, int mods) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
-			// This window's engine, not whichever was created last
+			if (!sys) return;
+			sys->QueueInput([=] {
+			// Not while that engine is running a frame (sys_local.h), and
+			// this window's engine, not whichever was created last
 			// (core_IMain::MakeImGuiCurrent).
+			std::lock_guard<std::recursive_mutex> hold(sys->frameLock);
 			if (sys->core) sys->core->MakeImGuiCurrent();
 			ImGui_ImplGlfw_KeyCallback(wnd, key, scancode, action, mods);
 			if (ImGui::GetIO().WantCaptureKeyboard) {
@@ -938,12 +990,11 @@ int sys_video_c::Apply(sys_vidSet_s* set)
 				}
 			}
 			});
+		});
 		glfwSetMouseButtonCallback(wnd, [](GLFWwindow* wnd, int button, int action, int mods) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
-			// This window's engine, not whichever was created last
-			// (core_IMain::MakeImGuiCurrent).
-			if (sys->core) sys->core->MakeImGuiCurrent();
-			ImGui_ImplGlfw_MouseButtonCallback(wnd, button, action, mods);
+			if (!sys) return;
+			sys->QueueInput([=] {
 			auto video = (sys_video_c*)sys->video;
 			int sg_key;
 			switch (button) {
@@ -1024,10 +1075,15 @@ int sys_video_c::Apply(sys_vidSet_s* set)
 			}
 			sys->core->KeyEvent(sg_key, sg_type);
 			});
+		});
 		glfwSetScrollCallback(wnd, [](GLFWwindow* wnd, double xoffset, double yoffset) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
-			// This window's engine, not whichever was created last
+			if (!sys) return;
+			sys->QueueInput([=] {
+			// Not while that engine is running a frame (sys_local.h), and
+			// this window's engine, not whichever was created last
 			// (core_IMain::MakeImGuiCurrent).
+			std::lock_guard<std::recursive_mutex> hold(sys->frameLock);
 			if (sys->core) sys->core->MakeImGuiCurrent();
 			ImGui_ImplGlfw_ScrollCallback(wnd, xoffset, yoffset);
 			if (ImGui::GetIO().WantCaptureMouse) {
@@ -1042,16 +1098,22 @@ int sys_video_c::Apply(sys_vidSet_s* set)
 				sys->core->KeyEvent(KEY_MWHEELDOWN, KE_KEYUP);
 			}
 			});
+		});
 		glfwSetWindowContentScaleCallback(wnd, [](GLFWwindow* wnd, float xScale, float yScale) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
-			// This window's engine, not whichever was created last
+			if (!sys) return;
+			sys->QueueInput([=] {
+			// Not while that engine is running a frame (sys_local.h), and
+			// this window's engine, not whichever was created last
 			// (core_IMain::MakeImGuiCurrent).
+			std::lock_guard<std::recursive_mutex> hold(sys->frameLock);
 			if (sys->core) sys->core->MakeImGuiCurrent();
 			auto video = (sys_video_c*)sys->video;
 			if (!video->ignoreDpiScale) {
 				video->vid.dpiScale = xScale;
 			}
 			});
+		});
 
 		// Adjust window look and position
 		{
@@ -1173,7 +1235,13 @@ void sys_video_c::SetTitle(const char* title)
 {
 	strcpy(curTitle, (title && *title) ? title : CFG_TITLE);
 	if (initialised) {
-		glfwSetWindowTitle(wnd, curTitle);
+		// On the main thread: macOS raises on a title set anywhere else, and
+		// POB sets its title from the script, which runs on this engine's own
+		// thread. The copy is what the main thread reads -- curTitle may have
+		// changed again by then.
+		GLFWwindow* w = wnd;
+		std::string want = curTitle;
+		sys_main_c::OnMainThread([w, want] { glfwSetWindowTitle(w, want.c_str()); });
 	}
 }
 

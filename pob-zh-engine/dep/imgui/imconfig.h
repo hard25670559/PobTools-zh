@@ -131,3 +131,19 @@ namespace ImGui
     void MyFunction(const char* name, MyMatrix44* mtx);
 }
 */
+
+//---- One interface state per thread.
+//
+// Which state the library acts on is a single pointer shared by the whole
+// process, and every one of its functions goes through it. With one POB that
+// is fine. With several, each on its own thread so that a slow frame in one
+// does not stall the others, two threads drawing at once overwrite each
+// other's pointer and the next call reads somebody else's state -- which ends
+// in a crash inside NewFrame.
+//
+// Giving each thread its own pointer is the library's own answer to this; the
+// comment above GImGui in imgui.cpp spells out these three lines. A process
+// with one POB has one thread drawing and behaves exactly as before.
+struct ImGuiContext;
+extern thread_local ImGuiContext* PobImGuiTLS;
+#define GImGui PobImGuiTLS

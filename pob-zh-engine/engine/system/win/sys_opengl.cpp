@@ -65,10 +65,14 @@ bool sys_openGL_c::Init(sys_glSet_s* set)
 	// then answers at a fraction of the rate and everything feels heavy. One
 	// waiting is enough to pace the whole round.
 	//
-	// A process running one POB, which is every Windows one, takes the same
-	// path it always did.
-	const int others = s_drawingEngines.fetch_add(1, std::memory_order_relaxed);
-	glfwSwapInterval(set->vsync && others == 0 ? 1 : 0);
+	// Each POB waits for its own display refresh.
+	//
+	// While they were stepped in turn this had to be the first one only:
+	// several waits in one loop added up, and the whole thing ran at a third
+	// of the refresh rate. On a thread each they wait side by side, so every
+	// POB can have the smooth picture vsync is for.
+	s_drawingEngines.fetch_add(1, std::memory_order_relaxed);
+	glfwSwapInterval(set->vsync ? 1 : 0);
 
 	return false;
 }

@@ -407,6 +407,16 @@ bool sys_main_c::SetWorkDir(std::filesystem::path const& newCwd)
 	};
 #endif
 	if (newCwd.empty()) {
+		// Several POBs in one process share one working directory, and each
+		// sets it before running its script and puts it back after (see
+		// ui_main_c::PCall). Put back by one while another is mid-script, the
+		// other's next `require` looks in the wrong place and the build dies
+		// on a module it has loaded a thousand times.
+		//
+		// So only a process running one POB restores it. With several it stays
+		// where the script wants it; the engine's own files are reached
+		// through basePath rather than relatively.
+		if (!PacesItsOwnFrames() && initialised) return false;
 		return changeDir(basePath) != 0;
 	} else {
 		return changeDir(newCwd) != 0;
@@ -734,8 +744,56 @@ bool sys_main_c::RunStart(int argc, char** argv)
 }
 
 // One pass of the frame loop; false when this engine is finished.
+namespace {
+	std::mutex s_mainWorkLock;
+	std::vector<std::function<void()>> s_mainWork;
+}
+
+void sys_main_c::OnMainThread(std::function<void()> fn)
+{
+	{
+		std::lock_guard<std::mutex> hold(s_mainWorkLock);
+		s_mainWork.push_back(std::move(fn));
+	}
+	// So a main thread waiting for events runs it now rather than at the next
+	// click.
+	glfwPostEmptyEvent();
+}
+
+void sys_main_c::RunMainThreadWork()
+{
+	std::vector<std::function<void()>> todo;
+	{
+		std::lock_guard<std::mutex> hold(s_mainWorkLock);
+		todo.swap(s_mainWork);
+	}
+	for (auto& fn : todo) fn();
+}
+
+void sys_main_c::QueueInput(std::function<void()> fn)
+{
+	std::lock_guard<std::mutex> hold(inputLock);
+	pendingInput.push_back(std::move(fn));
+}
+
+void sys_main_c::DrainInput()
+{
+	std::vector<std::function<void()>> todo;
+	{
+		std::lock_guard<std::mutex> hold(inputLock);
+		todo.swap(pendingInput);
+	}
+	// Outside the lock: handling an event can queue another one.
+	for (auto& fn : todo) {
+		fn();
+		if (exitFlag) return;
+	}
+}
+
 bool sys_main_c::RunOneFrame()
 {
+	std::lock_guard<std::recursive_mutex> hold(frameLock);
+	DrainInput();
 	if (exitFlag) return false;
 
 		// One store per iteration, before any of the work: whatever stops

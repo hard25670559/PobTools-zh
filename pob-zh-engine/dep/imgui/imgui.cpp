@@ -14996,3 +14996,6 @@ void ImGui::UpdateDebugToolStackQueries() {}
 //-----------------------------------------------------------------------------
 
 #endif // #ifndef IMGUI_DISABLE
+
+// The per-thread interface state pointer declared in imconfig.h.
+thread_local ImGuiContext* PobImGuiTLS = nullptr;

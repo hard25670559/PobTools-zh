@@ -49,6 +49,23 @@ struct FillPlan {
     std::vector<int> src;
 };
 
+// One translation layer, now read from several threads.
+//
+// Every POB in this process shares these tables -- deliberately, they are
+// large and identical. A lookup also writes: results go into a cache as they
+// are worked out. With each POB on its own thread two of them read and write
+// the cache at once, the table is left half-rebuilt, and what comes back is a
+// string that was never there -- which is where DrawString was found crashing.
+//
+// Lookups are short and the lock is taken once per public call, so a POB on
+// its own never contends and several only queue for the microseconds a lookup
+// takes. Recursive because these functions call each other.
+static std::recursive_mutex& pob_tr_lock()
+{
+    static std::recursive_mutex m;
+    return m;
+}
+
 static std::unordered_map<std::string, std::string> s_translations;      /* English → Chinese */
 static std::unordered_map<std::string, std::string> s_reverse;           /* Chinese → English (exact) */
 static std::unordered_map<std::string, FillPlan>    s_reverse_pattern;   /* Chinese pattern → English fill plan */
@@ -472,6 +489,8 @@ static std::vector<std::string>   s_glossary_blacklist;
 ** environment at ucrtbase init (BEFORE the host sets anything), so getenv() may never see
 ** them. GetEnvironmentVariableA reads the live Win32 environment. */
 const char* translation_win_env(const char *name, char *buf, unsigned size) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     DWORD n = GetEnvironmentVariableA(name, buf, size);
     return (n > 0 && n < size) ? buf : nullptr;
 }
@@ -935,6 +954,8 @@ static bool same_literal_value(const std::string &a, const std::string &b) {
 static bool s_legacy_fill = false;
 
 int translation_debug_set_legacy_fill(int on) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     bool prev = s_legacy_fill;
     s_legacy_fill = (on != 0);
     return prev ? 1 : 0;
@@ -1153,6 +1174,8 @@ static std::string strip_brackets(const std::string &s) {
 ** 讓測試自給樣板與輸入,走的仍是共用的 build_fill_plan / fill_plan。
 ** 輸入必須雜湊成與 source 樣板相同的字串;對不起來回 nullptr,免得打錯的案例安靜「通過」。 */
 const char* translation_debug_fill(const char *source_tmpl, const char *target_tmpl, const char *input) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     static std::string out;
     out.clear();
     if (!source_tmpl || !target_tmpl || !input) return nullptr;
@@ -1176,6 +1199,8 @@ const char* translation_debug_fill(const char *source_tmpl, const char *target_t
 /* 同一行文字,兩支掃描器的答案必須一致:digits_to_hash 回報的數字格(去掉原文本來就寫著
 ** '#' 的空格)應逐一等於 extract_numbers。回傳不一致的欄位數,0 代表相符。 */
 int translation_debug_slot_mismatch(const char *text) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     if (!text) return 0;
     std::vector<std::string> vals;
     digits_to_hash(normalize_placeholders(text), &vals);
@@ -2652,6 +2677,8 @@ static bool try_load_json(const std::string &base_dir) {
 /* ========== Public API ========== */
 
 void translation_wait_ready(void) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     /* 第一次真的要用字典時留一筆:等了多久就是載入落在關鍵路徑上的量(0 = 完全
     ** 藏在 POB 自己的載入後面)。static bool 在快路徑上只多一個分支。 */
     static bool s_first_use_traced = false;
@@ -2695,6 +2722,8 @@ void translation_wait_ready(void) {
 static std::atomic<int> s_users{0};
 
 void translation_init(void) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     translation_wait_ready();
     s_users.fetch_add(1, std::memory_order_relaxed);
     if (s_initialized) return;
@@ -2704,6 +2733,8 @@ void translation_init(void) {
 }
 
 void translation_init_async(void) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     translation_wait_ready();
     s_users.fetch_add(1, std::memory_order_relaxed);
     if (s_initialized) return;
@@ -2869,6 +2900,8 @@ static void do_init(void) {
 }
 
 void translation_shutdown(void) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     translation_wait_ready();
     /* 還有人在用:只記下這一個走了,字典留給其他人。 */
     if (s_users.fetch_sub(1, std::memory_order_acq_rel) > 1) return;
@@ -2948,6 +2981,8 @@ void translation_shutdown(void) {
 }
 
 void translation_reload(void) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     /* 重載不是離開:計數不動,先清再建。 */
     s_users.fetch_add(1, std::memory_order_relaxed);
     translation_shutdown();
@@ -2956,11 +2991,15 @@ void translation_reload(void) {
 }
 
 const char *translation_game(void) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     translation_wait_ready();
     return s_rules->game;
 }
 
 const char *translation_meta_source(void) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     translation_wait_ready();
     return s_meta_source.c_str();
 }
@@ -3356,6 +3395,8 @@ static std::atomic<size_t> s_keep_english_n{0};
 static const size_t kKeepEnglishCap = 50000;
 
 void translation_keep_english(const char *s) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     if (!s || !*s) return;
     std::lock_guard<std::mutex> lock(s_keep_english_mu);
     if (s_keep_english.size() >= kKeepEnglishCap) return;
@@ -3367,6 +3408,8 @@ static std::unordered_set<std::string> s_keep_scope;
 static std::atomic<size_t> s_keep_scope_n{0};
 
 void translation_set_keep_english_scope(const char *const *s, int n) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     std::lock_guard<std::mutex> lock(s_keep_english_mu);
     s_keep_scope.clear();
     for (int i = 0; s && i < n; i++)
@@ -3391,6 +3434,8 @@ static std::atomic<size_t> s_draw_override_n{0};
 static const size_t kDrawOverridePoolCap = 200000;
 
 void translation_set_draw_override(const char *const *keys, const char *const *vals, int n) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     std::lock_guard<std::mutex> lock(s_draw_override_mu);
     s_draw_override.clear();
     for (int i = 0; keys && vals && i < n; i++) {
@@ -3413,6 +3458,8 @@ static const char *draw_override_find(const char *s) {
 }
 
 const char* translation_lookup(const char *english) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     if (!english || !s_translation_enabled) return nullptr;
     /* a display string registered to stay English (a unique's flavour text) */
     if (is_keep_english(english)) return nullptr;
@@ -3972,6 +4019,8 @@ const char* translation_lookup(const char *english) {
 }
 
 const char* translation_lookup_item_title(const char *english) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     if (!english || !*english || !s_translation_enabled) return nullptr;
     translation_wait_ready();
     if (s_translations.empty()) return nullptr;
@@ -4003,6 +4052,8 @@ const char* translation_lookup_item_title(const char *english) {
 ** Returns the PREVIOUS selection so the caller can restore it (nesting-safe). An unknown name
 ** deliberately means "no source" (an older data pack may lack the file; the app must still render). */
 const char* translation_set_source(const char *name) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     translation_wait_ready();
     static std::string prev_holder;
     /* Copy the argument BEFORE touching prev_holder: restoring a nested scope passes back the
@@ -4038,6 +4089,8 @@ const char* translation_set_source(const char *name) {
 }
 
 const char* translation_get_source(void) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     translation_wait_ready();
     return s_active_source_name.empty() ? nullptr : s_active_source_name.c_str();
 }
@@ -4045,6 +4098,8 @@ const char* translation_get_source(void) {
 /* Pointer into s_id_dicts: stable until the next reload (translation_shutdown),
 ** the same lifetime contract translation_lookup's results already have. */
 const char* translation_lookup_by_id(const char *source, const char *id) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     translation_wait_ready();
     /* F2 off answers nothing, like every other lookup; a locale without
     ** "source_lookup" has no id lookups at all (see s_source_lookup). */
@@ -4061,6 +4116,8 @@ const char* translation_lookup_by_id(const char *source, const char *id) {
 ** keeps its id, so when the id file carries "templates" the answer counts only if its GGPK
 ** English is the English being shown. Same source_lookup gates via the plain call. */
 const char* translation_lookup_by_id_en(const char *source, const char *id, const char *en) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     const char *zh = translation_lookup_by_id(source, id);
     if (!zh || !en) return zh;
     auto tit = s_id_templates.find(source);
@@ -4503,10 +4560,14 @@ static const char *stat_lookup_cached(const char *line, const char *ctx, const c
 }
 
 const char* translation_lookup_stat_ids(const char *line, const char *ctx, const char *stat_ids) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     return stat_lookup_cached(line, ctx, stat_ids);
 }
 
 const char* translation_lookup_stat(const char *line, const char *ctx) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     return stat_lookup_cached(line, ctx, nullptr);
 }
 
@@ -4524,6 +4585,8 @@ static size_t stat_leading_colour_len(const char *s) {
 }
 
 const char* translation_lookup_stat_ids_colored(const char *line, const char *ctx, const char *stat_ids) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     const size_t cl = stat_leading_colour_len(line);
     if (cl == 0) return stat_lookup_cached(line, ctx, stat_ids);
     const char *zh = stat_lookup_cached(line + cl, ctx, stat_ids);
@@ -4546,6 +4609,8 @@ const char* translation_lookup_stat_ids_colored(const char *line, const char *ct
 }
 
 const char* translation_lookup_stat_colored(const char *line, const char *ctx) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     return translation_lookup_stat_ids_colored(line, ctx, nullptr);
 }
 
@@ -4600,6 +4665,8 @@ static std::string stat_row_body(const std::string &body, const char *ctx, const
 }
 
 const char* translation_lookup_stat_row(const char *row, const char *ctx, const char *stat_ids) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     if (!row || !*row || !stat_ids || stat_split_ids(stat_ids).empty()) return nullptr;
     translation_wait_ready();
     if (!s_translation_enabled || !s_source_lookup) return nullptr;
@@ -4713,6 +4780,8 @@ static int group_lines_core(const std::vector<std::string> &in, const char *ctx,
 }
 
 int translation_group_lines(const char *const *lines, int n, const char *ctx, const char **out) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     translation_wait_ready();
     static std::vector<std::string> s_out;
     static std::vector<char> s_hit;
@@ -4727,6 +4796,8 @@ int translation_group_lines(const char *const *lines, int n, const char *ctx, co
 }
 
 const char* translation_set_slash_context(const char *ctx) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     static std::string prev_holder;
     /* copy the argument first: restoring passes back the pointer this
     ** returned last time, which aliases prev_holder (as translation_set_source) */
@@ -4738,6 +4809,8 @@ const char* translation_set_slash_context(const char *ctx) {
 }
 
 const char* translation_debug_sources(void) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     translation_wait_ready();
     static std::string buf;
     auto names = [](const auto &m) {
@@ -4754,11 +4827,15 @@ const char* translation_debug_sources(void) {
 }
 
 const char* translation_get_locale(void) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     translation_wait_ready();
     return s_locale.c_str();
 }
 
 const char* translation_get_init_stats(void) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     /* 不 wait:wait_ready 自己會在 trace 行裡呼叫這個 */
     static char buf[200];
     snprintf(buf, sizeof(buf), "init %.0f ms%s (json parse %.0f, table build %.0f, %d files), main thread waited %.0f ms",
@@ -4768,6 +4845,8 @@ const char* translation_get_init_stats(void) {
 }
 
 int translation_get_count(void) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     translation_wait_ready();
     return (int)s_translations.size();
 }
@@ -5694,27 +5773,37 @@ static std::string reverse_one_line_impl(const std::string &line_in, LineKind ki
 /* ========== Public: reverse-translation trace ========== */
 
 void translation_trace_begin(void) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     s_trace_on = true;
     s_trace_buf.clear();
 }
 
 const char* translation_trace_get(void) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     return s_trace_buf.c_str();
 }
 
 void translation_trace_end(void) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     s_trace_on = false;
     s_trace_buf.clear();
     s_trace_buf.shrink_to_fit();
 }
 
 const char* translation_strip_ggg_markup(const char *s) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     static std::string holder;
     holder = s ? strip_brackets(s) : std::string();
     return holder.c_str();
 }
 
 const char* translation_classify_dump(const char *text) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     translation_wait_ready();
     static std::string holder;
     holder.clear();
@@ -5733,6 +5822,8 @@ const char* translation_classify_dump(const char *text) {
 /* ========== Public: reverse-translate multi-line text ========== */
 
 char* translation_reverse_text(const char *chinese_text) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     if (!chinese_text) return nullptr;
     translation_wait_ready();
     if (s_reverse.empty()) return nullptr;
@@ -5971,10 +6062,14 @@ char* translation_reverse_text(const char *chinese_text) {
 }
 
 void translation_free(char *str) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     free(str);
 }
 
 void translation_set_enabled(bool enabled) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     translation_wait_ready(); /* clears caches the worker may still be filling */
     s_translation_enabled = enabled;
     s_lookup_cache.clear();
@@ -5986,10 +6081,14 @@ void translation_set_enabled(bool enabled) {
 }
 
 bool translation_is_enabled(void) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     return s_translation_enabled;
 }
 
 const char* translation_reverse_lookup(const char *chinese) {
+    std::lock_guard<std::recursive_mutex> pob_tr_hold(pob_tr_lock());
+
     if (!chinese) return nullptr;
     translation_wait_ready();
     if (s_reverse.empty()) return nullptr;

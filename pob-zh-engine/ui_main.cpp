@@ -693,10 +693,22 @@ void ui_main_c::Frame()
 		c.presented = renderer->LastFramePresented();
 		c.frameStart = frameStart;
 		c.now = PerfNowSeconds();
-		const double s = PobFrameCap::SleepSeconds(c);
-		if (s > 0.0) {
-			PobFrameCap::PreciseSleep(s);
-			if (perf) perf->AddCpu(PerfLog::CpuCapSleep, s * 1000.0);
+		// Not while something outside is driving several POBs.
+		//
+		// Sleeping here stops the whole thread, and with more than one POB in
+		// the process that thread is shared: a window without focus sleeps off
+		// a 15 fps budget -- more than 60 ms -- and every other window waits
+		// through it, so a click lands a visible moment late. Whoever is
+		// driving them paces the round instead.
+		//
+		// A process running one POB, which is every Windows one, sleeps here
+		// exactly as before.
+		if (sys->PacesItsOwnFrames()) {
+			const double s = PobFrameCap::SleepSeconds(c);
+			if (s > 0.0) {
+				PobFrameCap::PreciseSleep(s);
+				if (perf) perf->AddCpu(PerfLog::CpuCapSleep, s * 1000.0);
+			}
 		}
 	}
 

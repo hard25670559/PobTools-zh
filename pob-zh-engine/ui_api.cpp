@@ -1314,7 +1314,6 @@ static int l_DrawString(lua_State* L)
 		luaL_checkoption(L, 5, "FIXED", fontMap),
 		s_text.c_str()
 	);
-
 	// Get the final color from the renderer after DrawString processes color codes
 	col4_t finalColor;
 	ui->renderer->GetDrawColor(finalColor);
