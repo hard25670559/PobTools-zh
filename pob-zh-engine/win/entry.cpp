@@ -111,6 +111,11 @@ extern "C" SIMPLEGRAPHIC_DLL_PUBLIC void* PobEngineOpen(int argc, char** argv)
 	// (core_IMain::MakeImGuiCurrent), so handing this one back costs it
 	// nothing.
 	ImGuiContext* callersUi = ImGui::GetCurrentContext();
+	// The same for the link to the graphics card: one belongs to one thread,
+	// and opening POB's window takes it on this one. The launcher binds its
+	// own once, when it makes its window, and never again -- dropped here, it
+	// would never draw another frame.
+	GLFWwindow* callersGl = glfwGetCurrentContext();
 
 	auto* sys = new sys_main_c;
 	if (!sys->RunStart(argc, argv)) {
@@ -120,14 +125,10 @@ extern "C" SIMPLEGRAPHIC_DLL_PUBLIC void* PobEngineOpen(int argc, char** argv)
 		return nullptr;
 	}
 	ImGui::SetCurrentContext(callersUi);
-	// Let go of the link to the graphics card before handing this engine over.
-	//
-	// A link belongs to one thread at a time. Opening the window takes it on
-	// whichever thread called in -- the main one -- and a frame loop on a
-	// thread of its own then cannot have it: its drawing is refused and the
-	// window stays black. Released here, each engine's own thread claims it at
-	// the top of every frame (sys_main_c::RunOneFrame) and keeps it.
-	glfwMakeContextCurrent(nullptr);
+	// Hand this thread's link back to whoever had it. POB's own thread claims
+	// its own at the top of every frame (sys_main_c::RunOneFrame), so leaving
+	// POB's bound here would only deny it to the caller.
+	glfwMakeContextCurrent(callersGl);
 	return sys;
 }
 

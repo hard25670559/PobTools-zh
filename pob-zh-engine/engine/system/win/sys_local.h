@@ -109,6 +109,9 @@ public:
 	// One queue for the whole process: there is one main thread, and it runs
 	// these where it takes events (PobEnginePollEvents).
 	static void	OnMainThread(std::function<void()> fn);
+	// The same, but waits for it. For window calls whose effect the caller
+	// needs before it goes on -- hiding a window, destroying one.
+	static void	OnMainThreadSync(std::function<void()> fn);
 	static void	RunMainThreadWork();
 	bool	minimized = false;
 	// POB_ZH_HEADLESS=1: no GLFW window, frame loop paced by stdin requests,

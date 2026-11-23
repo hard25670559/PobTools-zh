@@ -160,10 +160,18 @@ sys_video_c::sys_video_c(sys_IMain* sysHnd)
 sys_video_c::~sys_video_c()
 {
 	if (initialised) {
-		glfwDestroyWindow(wnd);
+		GLFWwindow* w = wnd;
+		sys_main_c::OnMainThreadSync([w] { glfwDestroyWindow(w); });
 	}
 
+#if !defined(__APPLE__)
 	glfwTerminate();
+#endif
+	// On macOS this is left alone. It shuts the window library down for the
+	// whole process: closing one POB would take the other builds and the
+	// launcher's own window with it. A process ending releases all of this
+	// anyway, and the launcher already avoids it for its own reason -- a
+	// second glfwInit after a terminate never returns here.
 }
 
 std::optional<std::pair<double, double>> PlatformGetCursorPos() {
@@ -800,7 +808,8 @@ int sys_video_c::Apply(sys_vidSet_s* set)
 			sys->conWin->SetForeground();
 		}
 		else {
-			glfwHideWindow(wnd);
+			GLFWwindow* w = wnd;
+			sys_main_c::OnMainThreadSync([w] { glfwHideWindow(w); });
 		}
 	}
 	else {
@@ -1217,12 +1226,13 @@ void sys_video_c::GetMinSize(int& width, int& height)
 void sys_video_c::SetVisible(bool vis)
 {
 	if (!initialised) return;
-	if (vis) {
-		glfwShowWindow(wnd);
-	}
-	else {
-		glfwHideWindow(wnd);
-	}
+	// On the main thread: macOS raises on a window shown or hidden anywhere
+	// else, and POB hides its window as it exits, from its own thread.
+	GLFWwindow* w = wnd;
+	sys_main_c::OnMainThreadSync([w, vis] {
+		if (vis) glfwShowWindow(w);
+		else glfwHideWindow(w);
+	});
 }
 
 bool sys_video_c::IsVisible()

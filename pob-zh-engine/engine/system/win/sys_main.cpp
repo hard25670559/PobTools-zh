@@ -5,6 +5,10 @@
 // Platform: Windows
 //
 
+#include <condition_variable>
+#if defined(__APPLE__)
+#include <pthread.h>
+#endif
 #include <fmt/chrono.h>
 #include <re2/re2.h>
 
@@ -758,6 +762,31 @@ void sys_main_c::OnMainThread(std::function<void()> fn)
 	// So a main thread waiting for events runs it now rather than at the next
 	// click.
 	glfwPostEmptyEvent();
+}
+
+void sys_main_c::OnMainThreadSync(std::function<void()> fn)
+{
+#if defined(__APPLE__)
+	// Already there: run it now. Queueing would wait for a loop this thread is
+	// the one running.
+	if (pthread_main_np() != 0) { fn(); return; }
+
+	std::mutex m;
+	std::condition_variable done;
+	bool finished = false;
+	OnMainThread([&] {
+		fn();
+		{
+			std::lock_guard<std::mutex> hold(m);
+			finished = true;
+		}
+		done.notify_one();
+	});
+	std::unique_lock<std::mutex> hold(m);
+	done.wait(hold, [&] { return finished; });
+#else
+	fn();
+#endif
 }
 
 void sys_main_c::RunMainThreadWork()
