@@ -46,6 +46,8 @@ public:
 	std::filesystem::path scriptCfg;
 	std::filesystem::path scriptPath;
 	std::filesystem::path scriptWorkDir;
+	// Whether this POB is counted among the working-directory users (ui_main.cpp).
+	bool	cwdClaimed = false;
 	int		scriptArgc = 0;
 	char**	scriptArgv = nullptr;
 	bool	restartFlag = false;

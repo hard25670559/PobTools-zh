@@ -4,6 +4,8 @@
 // Module: UI Main
 //
 
+#include <map>
+#include <mutex>
 #include "host/error_log.h"
 #include "host/hang_watch.h"
 #include "host/perf_log.h"
@@ -162,8 +164,53 @@ int ui_main_c::PushCallback(const char* name)
 	return -1;
 }
 
+
+// The working directory, when POBs in one process do not share one.
+//
+// The directory is the process's, not the thread's, and POB sets it before
+// every script call because its files are opened by relative path. Two POBs on
+// the same install want the same directory and never disturb each other. POE1
+// and POE2 together want different ones: one sets its own while the other is
+// mid-load, and the loading one goes looking for its passive tree in the other
+// game's folder.
+//
+// So directories are counted. While they all match, nothing is locked and the
+// script calls run side by side as before. The moment two differ, script calls
+// take turns -- slower with both games open, which is the price of a directory
+// that belongs to the process.
+namespace {
+	std::mutex s_cwdMutex;
+	std::map<std::filesystem::path, int> s_cwdUsers;
+
+	bool CwdIsContested()
+	{
+		std::lock_guard<std::mutex> hold(s_cwdMutex);
+		return s_cwdUsers.size() > 1;
+	}
+}
+
+void pob_cwd_claim(std::filesystem::path const& dir)
+{
+	std::lock_guard<std::mutex> hold(s_cwdMutex);
+	s_cwdUsers[dir]++;
+}
+
+void pob_cwd_release(std::filesystem::path const& dir)
+{
+	std::lock_guard<std::mutex> hold(s_cwdMutex);
+	auto it = s_cwdUsers.find(dir);
+	if (it != s_cwdUsers.end() && --it->second <= 0) s_cwdUsers.erase(it);
+}
+
+// Held across a script call only while the directories differ.
+namespace {
+	std::mutex s_scriptTurns;
+}
+
 void ui_main_c::PCall(int narg, int nret)
 {
+	std::unique_lock<std::mutex> turn;
+	if (CwdIsContested()) turn = std::unique_lock<std::mutex>(s_scriptTurns);
 	sys->SetWorkDir(scriptWorkDir);
 	inLua = true;
 	hasActiveCoroutine = false;
@@ -248,6 +295,10 @@ void ui_main_c::Init(int argc, char** argv)
 	auto scriptParent = scriptName.parent_path();
 	scriptPath = scriptParent;
 	scriptWorkDir = scriptParent;
+	// Counted so script calls take turns only when POBs disagree about the
+	// directory (see pob_cwd_claim above).
+	pob_cwd_claim(scriptWorkDir);
+	cwdClaimed = true;
 
 	scriptArgc = argc;
 	scriptArgv = new char*[argc];
@@ -821,6 +872,11 @@ void ui_main_c::ScriptShutdown()
 
 void ui_main_c::Shutdown()
 {
+	if (cwdClaimed) {
+		pob_cwd_release(scriptWorkDir);
+		cwdClaimed = false;
+	}
+
 	// Shutdown script
 	ScriptShutdown();
 
