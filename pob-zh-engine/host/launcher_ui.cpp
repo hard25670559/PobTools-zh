@@ -1092,6 +1092,39 @@ static int ClampOpacityThunk(int v, int /*fallback*/) { return ClampWindowOpacit
 #include "apple_layer_scale.h"
 #endif
 
+#if defined(__APPLE__)
+// Exported by the engine (win/entry.cpp), which this launcher now shares a
+// window library with.
+extern "C" void PobEngineRunMainWork(void);
+extern "C" void* PobEngineOpen(int argc, char** argv);
+extern "C" int PobEngineStep(void* handle);
+extern "C" int PobEngineClose(void* handle);
+
+// POBs opened inside this process. Each runs its frames on a thread of its own;
+// this list is only here to join them when the launcher goes away.
+static std::vector<std::thread> s_pobThreads;
+
+// Opens one, on this thread -- macOS makes windows nowhere else -- and hands it
+// to a thread of its own. False if the engine refused it.
+static bool OpenPobInProcess(const std::wstring& launchLua)
+{
+	std::string lua = narrow(launchLua);
+	std::vector<char> arg(lua.begin(), lua.end());
+	arg.push_back('\0');
+	char* argv[1] = { arg.data() };
+
+	void* handle = PobEngineOpen(1, argv);
+	if (!handle) return false;
+
+	s_pobThreads.emplace_back([handle] {
+		while (PobEngineStep(handle)) {}
+		PobEngineClose(handle);
+	});
+	return true;
+}
+#endif
+
+
 LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const std::wstring& exeDir,
                             AppUpdater* appUpd)
 {
@@ -1484,6 +1517,24 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 			return;
 		}
 		unsigned long pid = 0;
+#if defined(__APPLE__)
+		// Open POB inside this process rather than starting another program.
+		//
+		// The Dock gives one icon per program and lists only that program's own
+		// windows. Started outside, each build is its own program: either every
+		// one takes an icon of its own, or they give theirs up and vanish from
+		// the Dock entirely. Opened here, they are this launcher's windows --
+		// one icon, and every build in its menu under its own title.
+		//
+		// The engine's frame loop runs on a thread each (PobEngineStep), so a
+		// slow frame in one build does not hold up the others or this window.
+		if (OpenPobInProcess(lua)) {
+			anythingLaunched = true;
+			return;
+		}
+		// Could not open one here: fall through and start it as its own program,
+		// which is what this always did.
+#endif
 		if (!PobLaunch::SpawnPobDetached(lua, cfg.game, &pid)) return;
 		anythingLaunched = true;
 		// Tabbed mode docks it into this window; separate mode leaves it as its
@@ -4219,6 +4270,11 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 		// A border drag runs inside these two calls (and draws through `frame`).
 		if (nextWait > 0.0) glfwWaitEventsTimeout(nextWait);
 		else glfwPollEvents();
+#if defined(__APPLE__)
+		// Window calls from POBs running inside this process. macOS allows them
+		// only here, so their threads hand them back and this loop makes them.
+		PobEngineRunMainWork();
+#endif
 		// No live frame may start inside this one: the dialogs, clipboard calls
 		// and panel deferred work in it pump messages too.
 		LiveResize::MainScope inMain;

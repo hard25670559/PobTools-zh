@@ -703,8 +703,24 @@ if (WIN32 OR APPLE)
         # libEGL as well as libGLESv2: the launcher asks EGL directly for the
         # real size of the drawing surface, which is what the viewport has to
         # match (see host/launcher_ui.cpp).
-        target_link_libraries(pob-zh PRIVATE glfw unofficial::angle::libEGL
-                              unofficial::angle::libGLESv2 WebP::webpdecoder CURL::libcurl)
+        if (APPLE)
+            # The launcher uses the ENGINE's window library, not a copy of its own.
+            #
+            # Linked statically into both, there are two of them in one process:
+            # two sets of window-system state, both claiming the one macOS
+            # application object and the one event loop. That is what stops POB
+            # from running inside the launcher -- and running it outside is why
+            # each build is its own program, and why the Dock cannot gather them
+            # under one icon.
+            #
+            # SimpleGraphic exports the window functions (T _glfwInit), so the
+            # launcher resolves them there and the two share one library.
+            target_link_libraries(pob-zh PRIVATE SimpleGraphic unofficial::angle::libEGL
+                                  unofficial::angle::libGLESv2 WebP::webpdecoder CURL::libcurl)
+        else ()
+            target_link_libraries(pob-zh PRIVATE glfw unofficial::angle::libEGL
+                                  unofficial::angle::libGLESv2 WebP::webpdecoder CURL::libcurl)
+        endif ()
         if (APPLE)
             # Security: the DPAPI shim (engine/common/win_compat_crypt.h) keeps
             # the two credentials in the login keychain, which is the local
@@ -813,10 +829,10 @@ if (WIN32 OR APPLE)
             VERBATIM)
         add_custom_target(pobtools_icon ALL DEPENDS "${POBTOOLS_ICNS}")
         install(FILES "${POBTOOLS_ICNS}" DESTINATION "../Resources")
-        # The dylibs sit beside the executable, so this is where they are
-        # looked up from -- no install_name rewriting needed.
+        # Most dylibs sit beside the executable; SimpleGraphic, which the
+        # launcher now shares a window library with, sits in engine/.
         set_target_properties(pob-zh PROPERTIES
-            INSTALL_RPATH "@executable_path"
+            INSTALL_RPATH "@executable_path;@executable_path/engine"
             BUILD_WITH_INSTALL_RPATH FALSE)
     endif ()
     # Bundled item-name -> icon art-path map (generated from RePoE).

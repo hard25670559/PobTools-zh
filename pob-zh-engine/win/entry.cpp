@@ -104,15 +104,35 @@ extern "C" SIMPLEGRAPHIC_DLL_PUBLIC void* PobEngineOpen(int argc, char** argv)
 		delete sys;
 		return nullptr;
 	}
+	// Let go of the link to the graphics card before handing this engine over.
+	//
+	// A link belongs to one thread at a time. Opening the window takes it on
+	// whichever thread called in -- the main one -- and a frame loop on a
+	// thread of its own then cannot have it: its drawing is refused and the
+	// window stays black. Released here, each engine's own thread claims it at
+	// the top of every frame (sys_main_c::RunOneFrame) and keeps it.
+	glfwMakeContextCurrent(nullptr);
 	return sys;
 }
 
 // False once this POB is finished; the caller then closes it.
 // The caller takes the window system's events itself, once per round, before
 // stepping any engine -- see the comment in sys_main.cpp's frame loop.
+// Window work the engines' threads handed back, without taking events.
+//
+// For a host that runs its own event loop -- the launcher, which has a window
+// of its own -- and only needs the engines' window calls to happen on this
+// thread.
+extern "C" SIMPLEGRAPHIC_DLL_PUBLIC void PobEngineRunMainWork(void)
+{
+	sys_main_c::RunMainThreadWork();
+}
+
 extern "C" SIMPLEGRAPHIC_DLL_PUBLIC void PobEnginePollEvents(void)
 {
 	glfwPollEvents();
+	// Window work the engines' own threads handed back (sys_local.h).
+	sys_main_c::RunMainThreadWork();
 }
 
 extern "C" SIMPLEGRAPHIC_DLL_PUBLIC int PobEngineStep(void* handle)
