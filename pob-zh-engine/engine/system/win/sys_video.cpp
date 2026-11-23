@@ -96,6 +96,9 @@ public:
 	char	curTitle[512] = {};	// Window title
 
 	bool cursorInWindow = false;
+	// Any mouse button down on this window: a drag that leaves it is still
+	// this window's (GetRelativeCursor).
+	int	mouseButtonsDown = 0;
 
 	struct CursorPos {
 		int x, y;
@@ -1048,6 +1051,8 @@ int sys_video_c::Apply(sys_vidSet_s* set)
 			}
 
 			sys->heldKeyState[sg_key] = is_down;
+			if (is_down) video->mouseButtonsDown++;
+			else if (video->mouseButtonsDown > 0) video->mouseButtonsDown--;
 			keyEvent_s sg_type = is_down ? KE_KEYDOWN : KE_KEYUP;
 
 			// Determine if a click is a doubleclick by checking for recent nearby click of same type.
@@ -1263,6 +1268,22 @@ void* sys_video_c::GetWindowHandle()
 void sys_video_c::GetRelativeCursor(int& x, int& y)
 {
 	if (!initialised) return;
+
+	// Off-screen while the pointer is over some other window.
+	//
+	// The window system answers "where is the pointer in your coordinates"
+	// whatever is in front, so a POB in the background reads a position inside
+	// itself and lights up whatever is under it. One pointer over the launcher
+	// or another build, and every POB behind shows a hover.
+	//
+	// Not while a button is down: a drag that leaves the window is still this
+	// window's, and POB follows it to wherever it is released.
+	if (!cursorInWindow && mouseButtonsDown == 0) {
+		x = -1;
+		y = -1;
+		return;
+	}
+
 	double xpos, ypos;
 	glfwGetCursorPos(wnd, &xpos, &ypos);
 	x = (int)floor(xpos);
