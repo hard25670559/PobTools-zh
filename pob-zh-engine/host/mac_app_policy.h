@@ -28,6 +28,20 @@ inline void MakeAccessoryApp()
 	((bool(*)(mac_id, mac_sel, long))objc_msgSend)(app, sel_getUid("setActivationPolicy:"), 1L);
 }
 
+// The other way: a program with a Dock tile and a place in Cmd+Tab.
+//
+// For a launcher that gave its tile up while POB ran and is about to show its
+// own window again (the return-after-exit mode).
+inline void MakeRegularApp()
+{
+	mac_class appClass = objc_getClass("NSApplication");
+	if (!appClass) return;
+	mac_id app = ((mac_id(*)(mac_class, mac_sel))objc_msgSend)(appClass, sel_getUid("sharedApplication"));
+	if (!app) return;
+	// NSApplicationActivationPolicyRegular == 0
+	((bool(*)(mac_id, mac_sel, long))objc_msgSend)(app, sel_getUid("setActivationPolicy:"), 0L);
+}
+
 } // namespace pob_mac
 
 #endif

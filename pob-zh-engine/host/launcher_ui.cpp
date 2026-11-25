@@ -1,3 +1,4 @@
+#include <filesystem>
 #include "launcher_ui.h"
 #include <map>                  // RunFontCoverageSelftest's union bookkeeping
 #include "pob_migrate.h"
@@ -1090,6 +1091,7 @@ static int ClampOpacityThunk(int v, int /*fallback*/) { return ClampWindowOpacit
 
 #if defined(__APPLE__)
 #include "apple_layer_scale.h"
+#include "mac_menu.h"
 #endif
 
 #if defined(__APPLE__)
@@ -1100,6 +1102,19 @@ extern "C" void* PobEngineOpen(int argc, char** argv);
 extern "C" int PobEngineStep(void* handle);
 extern "C" int PobEngineClose(void* handle);
 extern "C" void PobEngineRequestClose(void* handle);
+extern "C" void PobEngineOnSettingsKey(void (*fn)());
+
+// Set when Command-comma is pressed in a POB window, cleared once the
+// launcher's window is back up. The key handler runs on the main thread but
+// inside POB's engine, so it only raises the flag; the loop below does the
+// window work.
+static bool s_showLauncherRequested = false;
+static void RequestLauncherWindow() { s_showLauncherRequested = true; }
+
+// Set when Quit is chosen. The program does not end there: every open POB is
+// asked about unsaved work first, and the loop ends once they have all closed.
+static bool s_quitRequested = false;
+static void RequestQuit() { s_quitRequested = true; }
 
 // POBs opened inside this process, each running its frames on a thread of its
 // own. Kept so the launcher can close them before it goes away: a std::thread
@@ -1115,6 +1130,29 @@ struct InProcessPob {
 };
 static std::vector<InProcessPob> s_pobs;
 
+// Set when a POB opens in the mode that hides this window while it runs, and
+// cleared when the last POB closes. The main loop hides and shows the window
+// from it rather than doing so here: the window belongs to that loop.
+static bool s_hideWhilePobRuns = false;
+
+// Asks every open POB to close, each through its own "save before exiting?".
+//
+// For when the program itself is ending -- a restart from the settings, or
+// Quit -- where closing POB silently would lose unsaved builds.
+static void AskAllPobsToClose()
+{
+	for (auto& p : s_pobs)
+		if (p.handle && !p.done->load()) PobEngineRequestClose(p.handle);
+}
+
+// Whether any POB opened here is still running.
+static bool AnyPobRunningInProcess()
+{
+	for (auto& p : s_pobs)
+		if (!p.done->load()) return true;
+	return false;
+}
+
 // Asks every POB still open to finish, then waits for it.
 //
 // On the main thread, which is where the engines hand their window work back
@@ -1122,8 +1160,11 @@ static std::vector<InProcessPob> s_pobs;
 // would never reach its last frame.
 static void CloseAllPobs()
 {
+	// Only the ones still running: a POB the user closed has already shut
+	// itself down and freed everything behind that handle, and asking it to
+	// close reads memory that is gone.
 	for (auto& p : s_pobs) {
-		if (p.handle) PobEngineRequestClose(p.handle);
+		if (p.handle && !p.done->load()) PobEngineRequestClose(p.handle);
 	}
 	for (auto& p : s_pobs) {
 		while (!p.done->load()) {
@@ -1165,6 +1206,10 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 {
 	// Fixed for as long as this launcher window is up (see keepOpen below).
 	const LaunchExitMode sessionExitMode = cfg.exitMode;
+#if defined(__APPLE__)
+	// Command-comma in a POB window asks for this one.
+	PobEngineOnSettingsKey(&RequestLauncherWindow);
+#endif
 
 #if defined(__APPLE__)
 	// ANGLE picks a rendering backend per platform; on macOS that is Metal,
@@ -1368,7 +1413,7 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 	// for the mode above.
 	WindowDock::Dock dock;
 	if (tabbed) {
-		dock.Init(glfwGetWin32Window(win), exeDir + L"PobTools\\dock_log.txt");
+		dock.Init(glfwGetWin32Window(win), user_dir_for(exeDir) + L"PobTools\\dock_log.txt");
 		g_launcherDock = &dock;
 		// Dragging a window puts Windows into a modal message loop during which
 		// glfwPollEvents never returns, so without these the docked window is
@@ -1512,7 +1557,7 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 	// lets them be told apart later without parsing window titles
 	auto spawnTool = [&](const wchar_t* flag, PobLaunch::InstanceKind kind, const char* label) {
 		syncCfgFromUi();
-		SaveLauncherConfigKeepModern(exeDir + L"pob-zh.ini", cfg);
+		SaveLauncherConfigKeepModern(user_dir_for(exeDir) + L"pob-zh.ini", cfg);
 		unsigned long pid = 0;
 		if (!PobLaunch::SpawnToolDetached(exeDir, flag, kind, &pid)) return;
 		anythingLaunched = true;
@@ -1530,7 +1575,7 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 	auto launchPob = [&](bool poe2) {
 		syncCfgFromUi();
 		cfg.game = poe2 ? L"poe2" : L"poe1"; // the row that was clicked, not the selection
-		SaveLauncherConfigKeepModern(exeDir + L"pob-zh.ini", cfg);   // the child's safety net
+		SaveLauncherConfigKeepModern(user_dir_for(exeDir) + L"pob-zh.ini", cfg);   // the child's safety net
 		// Only a validated external folder is passed on (see the settings page),
 		// and only the one for the game being started; a broken path leaves POB on
 		// the built-in dictionaries.
@@ -1568,6 +1613,12 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 		// slow frame in one build does not hold up the others or this window.
 		if (OpenPobInProcess(lua)) {
 			anythingLaunched = true;
+#if defined(__APPLE__)
+			// POB goes to the front. Whether this window steps aside is the
+			// one choice left in the settings; either way Command-comma
+			// brings it back.
+			s_hideWhilePobRuns = (sessionExitMode != LaunchExitMode::KeepOpen);
+#endif
 			return;
 		}
 		// Could not open one here: fall through and start it as its own program,
@@ -1640,7 +1691,7 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 	// changes take effect.
 	auto saveNow = [&]() {
 		syncCfgFromUi(); // language / game are widget state until now
-		SaveLauncherConfigKeepModern(exeDir + L"pob-zh.ini", cfg);
+		SaveLauncherConfigKeepModern(user_dir_for(exeDir) + L"pob-zh.ini", cfg);
 		savedUntil = ImGui::GetTime() + 3.0;
 	};
 	// Resize the window from the settings page. `remember` decides what the ini
@@ -1880,7 +1931,7 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 						// Straight to the ini: saveNow() would flash "saved" on
 						// every drag, which is noise for something this passive.
 						syncCfgFromUi();
-						SaveLauncherConfigKeepModern(exeDir + L"pob-zh.ini", cfg);
+						SaveLauncherConfigKeepModern(user_dir_for(exeDir) + L"pob-zh.ini", cfg);
 					}
 				}
 			}
@@ -2091,6 +2142,20 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 		                          (localeIdx >= 0 && localeIdx < (int)localeDrawable.size() &&
 		                           localeDrawable[localeIdx]);
 		const LauncherStrings& S = langDrawable ? strStore[localeIdx].s : strStore[0].s;
+#if defined(__APPLE__)
+		// Settings… ⌘, in the application menu, where people look to find out
+		// the shortcut exists. Added once, here rather than at startup, so it
+		// carries the launcher's own wording.
+		{
+			static bool menuAdded = false;
+			if (!menuAdded) {
+				menuAdded = true;
+				pob_mac::AddSettingsMenuItem(S.macMenuSettings, &RequestLauncherWindow);
+				// Quit asks POB about unsaved work before the program ends.
+				pob_mac::TakeOverQuitMenuItem(&RequestQuit);
+			}
+		}
+#endif
 		// Which release history to show. The prose lives in the source, not in a
 		// translated string table, so it follows the same fallback S does: a font
 		// that cannot draw the chosen language would make the Chinese one
@@ -2599,7 +2664,14 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 		// Changing it while POB is open would leave the two disagreeing: builds
 		// opened under one mode, the launcher behaving as the other. Saved
 		// right away, it takes effect the next time the launcher starts.
+		// On macOS POB always opens inside this process: this window steps
+		// aside while it runs and comes back on Command-comma, so there is no
+		// mode to consult. Elsewhere, only the keep-open mode starts POB here.
+#if defined(__APPLE__)
+		const bool keepOpen = true;
+#else
 		const bool keepOpen = tabbed || (sessionExitMode == LaunchExitMode::KeepOpen);
+#endif
 		PobUi::SectionHeader(S.gamesSection, inner);
 		ImGui::Dummy(ImVec2(0, D(4.0f)));
 		if (pobDlJob.valid() && pobDlJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
@@ -3121,7 +3193,7 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 					const std::wstring src = EdOpenFontDialog();
 					if (!src.empty()) {
 						const std::wstring name = src.substr(src.find_last_of(L'\\') + 1);
-						const std::wstring dst = exeDir + L"Fonts\\" + name;
+						const std::wstring dst = data_dir_for(exeDir) + L"Fonts\\" + name;
 						switch (ClassifyFontFile(read_file(src))) {
 							case FontKind::CffOutlines: PobUi::ShowToast(S.fontCff, PobUi::Tone::Bad); break;
 							case FontKind::NotAFont:    PobUi::ShowToast(S.fontNotAFont, PobUi::Tone::Bad); break;
@@ -3254,7 +3326,35 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 				// One choice, not two checkboxes: "return afterwards" and "stay open"
 				// cannot both be true. Ignored in tabbed mode -- this window IS where
 				// POB lives -- so it is disabled there and says so.
+#if defined(__APPLE__)
+				// Two choices, both of which keep POB inside this process:
+				// put this window away while POB runs, or leave it up. Either
+				// way Command-comma brings it back, so the row says so rather
+				// than making that a third choice.
+				{
+					// Segmented, like the window-mode row above it: two
+					// choices, both visible, no list to open.
+					const char* macOpts[2] = { S.macExitHide, S.macExitKeep };
+					int me = (cfg.exitMode == LaunchExitMode::KeepOpen) ? 1 : 0;
+					PobUi::RowBegin(S.sectionLaunch, S.settingsKeyNote,
+					                PobUi::SegmentedWidth(macOpts, 2));
+					if (PobUi::Segmented("##exitmode", &me, macOpts, 2)) {
+						cfg.exitMode = (me == 1) ? LaunchExitMode::KeepOpen
+						                         : LaunchExitMode::ReturnAfterExit;
+						saveNow();
+					}
+					PobUi::RowEnd();
+				}
+#else
+				// Two choices on macOS, three on Windows.
+				//
+				// POB runs inside this process here (OpenPobInProcess), so
+				// "close the launcher" cannot mean what it does on Windows --
+				// the process POB lives in would go with it. What is left is
+				// whether the launcher's window stays up, and the two modes
+				// that differ only in that are offered as one.
 				const char* opts[3] = { S.exitModeClose, S.returnAfterExit, S.exitModeKeepOpen };
+				const int optCount = 3;
 				const float selW = std::floor(D(300.0f));
 				// Always said, not only once it differs: the mode in force is
 				// the one this launcher started with (see sessionExitMode), so
@@ -3263,11 +3363,12 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 				PobUi::RowBegin(S.sectionLaunch,
 				                tabbed ? S.exitModeTabbedNote : S.exitModeNextStart,
 				                selW, 0.0f, nullptr, tabbed);
-				if (PobUi::Select("##exitmode", &em, opts, nullptr, 3, selW, !tabbed) && !tabbed) {
+				if (PobUi::Select("##exitmode", &em, opts, nullptr, optCount, selW, !tabbed) && !tabbed) {
 					cfg.exitMode = (LaunchExitMode)em;
 					saveNow();
 				}
 				PobUi::RowEnd();
+#endif
 			}
 			{
 				const char* opts[2] = { S.tabHome, S.changelog };
@@ -3282,7 +3383,14 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 			// The mode is decided once, when this window is created (it changes
 			// whether the docking callbacks exist), so a change needs a restart --
 			// which the banner offers rather than leaving the user to find it.
-			if (cfg.windowMode != (tabbed ? WindowMode::Tabbed : WindowMode::Separate)) {
+			bool needsRestart = cfg.windowMode != (tabbed ? WindowMode::Tabbed : WindowMode::Separate);
+#if defined(__APPLE__)
+			// The launch mode is read once, when POB is opened from this
+			// window, so changing it now would not match what the window then
+			// does -- the same restart the window mode needs.
+			needsRestart = needsRestart || (cfg.exitMode != sessionExitMode);
+#endif
+			if (needsRestart) {
 				const ImVec2 cp = ImGui::GetCursorScreenPos();
 				ImGui::SetCursorScreenPos(ImVec2(PobUi::CardInnerX(), cp.y));
 				if (PobUi::Banner("##restart", PobUi::BannerTone::Warn, PobIcon::Refresh, S.winModeRestart, nullptr, false,
@@ -4259,7 +4367,7 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 				// to the same folder by hand would be a pointless second step.
 				cfg.dataDir[copySlot] = copyDest;
 				resolveDict(copySlot);
-				SaveLauncherConfigKeepModern(exeDir + L"pob-zh.ini", cfg);
+				SaveLauncherConfigKeepModern(user_dir_for(exeDir) + L"pob-zh.ini", cfg);
 			}
 			copyDest.clear();
 		}
@@ -4314,7 +4422,36 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 		nextWait = pacer.WaitSeconds(glfwGetTime());
 	};
 	LiveResize::SetDraw([&] { frame(true); });
-	while (!glfwWindowShouldClose(win) && !launch && !openEditor && !applyUpdate) {
+	// Whether the loop is done, checked before the condition rather than in it.
+	//
+	// On macOS, closing this window while POB is open only puts the window
+	// away: POB runs inside this process, so leaving here would end it and
+	// take every open build with it. Command-comma brings the window back, and
+	// the program ends once the last POB has closed.
+	auto loopDone = [&] {
+#if defined(__APPLE__)
+		// Closing this window with POB open only puts the window away --
+		// unless the user asked for something that ends the program anyway
+		// (a restart), in which case POB is asked to close first and this
+		// loop waits for it.
+		if (glfwWindowShouldClose(win) && AnyPobRunningInProcess() && !relaunchRequested) {
+			glfwSetWindowShouldClose(win, GLFW_FALSE);
+			glfwHideWindow(win);
+			s_hideWhilePobRuns = true;
+		}
+		if ((relaunchRequested || s_quitRequested) && AnyPobRunningInProcess()) {
+			// Each POB gets to ask about unsaved work; the loop keeps running
+			// so those prompts can be drawn and answered.
+			static bool asked = false;
+			if (!asked) { asked = true; AskAllPobsToClose(); }
+			return false;
+		}
+		if (s_quitRequested) return true;
+#endif
+		return glfwWindowShouldClose(win) || launch || openEditor || applyUpdate;
+	};
+
+	while (!loopDone()) {
 		// A border drag runs inside these two calls (and draws through `frame`).
 		if (nextWait > 0.0) glfwWaitEventsTimeout(nextWait);
 		else glfwPollEvents();
@@ -4322,6 +4459,27 @@ LauncherResult ShowLauncher(LauncherConfig& cfg, InstallInfo& installs, const st
 		// Window calls from POBs running inside this process. macOS allows them
 		// only here, so their threads hand them back and this loop makes them.
 		PobEngineRunMainWork();
+
+		// Out of the way while POB runs, back on Command-comma or when the
+		// last POB closes.
+		//
+		// The launcher is this program's settings window: POB is what the user
+		// came for, so it goes to the front and the launcher steps aside, to
+		// be called up again the way every Mac program's settings are.
+		if (s_showLauncherRequested) {
+			s_showLauncherRequested = false;
+			s_hideWhilePobRuns = false;
+			glfwShowWindow(win);
+			glfwFocusWindow(win);
+		} else if (s_hideWhilePobRuns) {
+			if (AnyPobRunningInProcess()) {
+				if (glfwGetWindowAttrib(win, GLFW_VISIBLE)) glfwHideWindow(win);
+			} else {
+				s_hideWhilePobRuns = false;
+				glfwShowWindow(win);
+				glfwFocusWindow(win);
+			}
+		}
 #endif
 		// No live frame may start inside this one: the dialogs, clipboard calls
 		// and panel deferred work in it pump messages too.
@@ -4418,7 +4576,7 @@ int RunFontAtlasSelftest(const std::wstring& exeDir)
 		if (!ok) failures++;
 	};
 
-	LauncherConfig cfg = LoadLauncherConfig(exeDir + L"pob-zh.ini");
+	LauncherConfig cfg = LoadLauncherConfig(user_dir_for(exeDir) + L"pob-zh.ini");
 	const std::wstring launcherRoot = ResolveDictDir(exeDir, DictSlot::Launcher,
 	                                                 cfg.dataDir[(int)DictSlot::Launcher]).root;
 	std::vector<LocaleInfo> locales = ListInstalledLocales(exeDir, cfg);
@@ -4761,8 +4919,8 @@ int RunFontAtlasSelftest(const std::wstring& exeDir)
 	check("the suite actually ran", ran >= 10, std::to_string(ran) + " checks");
 
 	report += failures ? "RESULT FAIL\n" : "RESULT PASS\n";
-	CreateDirectoryW((exeDir + L"PobTools").c_str(), nullptr);
-	HANDLE h = CreateFileW((exeDir + L"PobTools\\font_atlas_selftest.txt").c_str(),
+	CreateDirectoryW((user_dir_for(exeDir) + L"PobTools").c_str(), nullptr);
+	HANDLE h = CreateFileW((user_dir_for(exeDir) + L"PobTools\\font_atlas_selftest.txt").c_str(),
 	                       GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS,
 	                       FILE_ATTRIBUTE_NORMAL, nullptr);
 	if (h != INVALID_HANDLE_VALUE) {
@@ -4784,7 +4942,7 @@ int RunFontCoverageSelftest(const std::wstring& exeDir)
 	// labels became translatable, a translator can type a character the shipped
 	// font has no glyph for, and adding a language folder must not quietly escape
 	// this check. The list comes from disk for exactly that reason.
-	LauncherConfig cfg = LoadLauncherConfig(exeDir + L"pob-zh.ini");
+	LauncherConfig cfg = LoadLauncherConfig(user_dir_for(exeDir) + L"pob-zh.ini");
 	const std::wstring launcherRoot = ResolveDictDir(exeDir, DictSlot::Launcher,
 	                                                 cfg.dataDir[(int)DictSlot::Launcher]).root;
 	std::vector<LocaleInfo> locales = ListInstalledLocales(exeDir, cfg);
