@@ -397,18 +397,31 @@ void ui_subscript_c::Stop()
 	// that never reaches another Lua line (a stuck download, say) stops POB dead
 	// right here, and this is what says so.
 	HangWatch::Scope watch("subscript-stop");
+	// Only while one is actually running.
+	//
+	// A script that has already ended had `finished` cleared when its end was
+	// noticed (SubScriptFrame), so waiting on that flag outside this test
+	// waits for something that has already happened and never comes again --
+	// POB hangs on exit with nothing to show for it.
 	if (running) {
 		// Set hook to stop script on the next line
 		lua_sethook(L, l_hookStop, LUA_MASKLINE, 0);
-		while ( !finished && !funcWaiting ) ui->sys->Sleep(0);
-	}
 
-	if (funcWaiting) {
-		// Script is waiting on function call; discard and wait for script to stop
-		ssWipeData(funcCall.data);
-		funcCall.data = NULL;
-		funcWaiting = false;
-		while ( !finished ) ui->sys->Sleep(0);
+		// Every call the script makes on its way out, not just the one it
+		// happened to be waiting on.
+		//
+		// A background script asks the main thread for something and sleeps
+		// until it is answered (l_SubScriptFunc). Answering only the first one
+		// and then waiting for the script to finish leaves the two waiting on
+		// each other the moment it asks again.
+		while (!finished) {
+			if (funcWaiting) {
+				ssWipeData(funcCall.data);
+				funcCall.data = NULL;
+				funcWaiting = false;
+			}
+			ui->sys->Sleep(0);
+		}
 	}
 
 	// Discard data for any pending sub calls
