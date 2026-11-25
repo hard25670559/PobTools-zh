@@ -28,6 +28,13 @@
 // Classes
 // =======
 
+class sys_main_c;
+
+// Asks POB whether its window may close, and closes it if so (sys_video.cpp).
+// The close button and the launcher both go through this, so the "unsaved
+// changes" question is never skipped.
+void PobVideoRequestClose(sys_main_c* sys);
+
 // System Main: sys_main.cpp
 class sys_main_c: public sys_IMain {
 public:

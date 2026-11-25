@@ -934,6 +934,11 @@ bool sys_main_c::RunFinish()
 	// Release system interfaces
 	core_IMain::FreeHandle(core);
 	sys_IVideo::FreeHandle(video);
+	// Cleared, not just freed: a host that still holds this engine's handle
+	// asks it to close on its way out (PobEngineRequestClose), and a stale
+	// pointer there is a read of memory already given back.
+	core = nullptr;
+	video = nullptr;
 	sys_IConsole::FreeHandle(conWin);
 	IConsole::FreeHandle(con);
 	// Paired with the Start() above. Left running, the watchdog thread would be

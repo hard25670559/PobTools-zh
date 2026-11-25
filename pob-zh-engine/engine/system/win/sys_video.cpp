@@ -95,7 +95,6 @@ public:
 	int		minSize[2] = {};	// Minimum window size
 	char	curTitle[512] = {};	// Window title
 
-	bool cursorInWindow = false;
 	// Any mouse button down on this window: a drag that leaves it is still
 	// this window's (GetRelativeCursor).
 	int	mouseButtonsDown = 0;
@@ -122,6 +121,34 @@ sys_IVideo* sys_IVideo::GetHandle(sys_IMain* sysHnd)
 void sys_IVideo::FreeHandle(sys_IVideo* hnd)
 {
 	delete (sys_video_c*)hnd;
+}
+
+// Asks POB whether this window may close, and closes it if so.
+//
+// Both the close button and whoever asks from outside (the launcher, on Quit
+// or a restart) come through here, so "this build has unsaved changes" is
+// never skipped: the window system has already decided the window is closing
+// by the time it says so, and a handler that only writes the request down
+// lets it close while POB is still being asked.
+void PobVideoRequestClose(sys_main_c* sys)
+{
+	if (!sys || !sys->video) return;
+	GLFWwindow* wnd = (GLFWwindow*)sys->video->GetWindowHandle();
+	if (!wnd) return;
+	// Refused for now; asked on POB's own thread, which closes the window
+	// itself once the answer is yes.
+	glfwSetWindowShouldClose(wnd, GLFW_FALSE);
+	sys->QueueInput([sys, wnd] {
+		// Not while that engine is running a frame (sys_local.h), and this
+		// window's engine, not whichever was created last
+		// (core_IMain::MakeImGuiCurrent).
+		std::lock_guard<std::recursive_mutex> hold(sys->frameLock);
+		if (!sys->video) return;
+		if (sys->core) sys->core->MakeImGuiCurrent();
+		if (sys->initialised && sys->core && sys->core->CanExit()) {
+			glfwSetWindowShouldClose(wnd, GLFW_TRUE);
+		}
+	});
 }
 
 sys_video_c::sys_video_c(sys_IMain* sysHnd)
@@ -154,8 +181,12 @@ sys_video_c::sys_video_c(sys_IMain* sysHnd)
 	// POB_ZH_LAUNCHER_STAYS is set by the launcher from its own exit mode (see
 	// host_main.cpp). Started by hand, with no launcher anywhere, the variable
 	// is absent and POB keeps its tile.
+	// Stated either way, never left to whatever the window library happened to
+	// set: "no tile" and "a tile" are both deliberate here, and a POB that
+	// guesses leaves the Dock either empty or showing the same icon twice.
 	if (const char* stays = ::getenv("POB_ZH_LAUNCHER_STAYS")) {
 		if (stays[0] == '1') pob_mac::MakeAccessoryApp();
+		else pob_mac::MakeRegularApp();
 	}
 #endif
 }
@@ -176,6 +207,13 @@ sys_video_c::~sys_video_c()
 	// anyway, and the launcher already avoids it for its own reason -- a
 	// second glfwInit after a terminate never returns here.
 }
+
+#if defined(__APPLE__)
+// Set by the host that owns the launcher window (win/entry.cpp,
+// PobEngineOnSettingsKey). Null when POB runs on its own, where there is no
+// launcher to show.
+void (*pob_host_settings_requested)() = nullptr;
+#endif
 
 std::optional<std::pair<double, double>> PlatformGetCursorPos() {
 #if _WIN32
@@ -864,7 +902,6 @@ int sys_video_c::Apply(sys_vidSet_s* set)
 			ImGui_ImplGlfw_CursorEnterCallback(wnd, entered);
 			auto video = (sys_video_c*)sys->video;
 			bool is_inside = !!entered;
-			video->cursorInWindow = is_inside;
 			if (!is_inside) {
 				video->lastCursorPos.reset();
 			}
@@ -890,14 +927,7 @@ int sys_video_c::Apply(sys_vidSet_s* set)
 		glfwSetWindowCloseCallback(wnd, [](GLFWwindow* wnd) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
 			if (!sys) return;
-			sys->QueueInput([=] {
-			// Not while that engine is running a frame (sys_local.h), and
-			// this window's engine, not whichever was created last
-			// (core_IMain::MakeImGuiCurrent).
-			std::lock_guard<std::recursive_mutex> hold(sys->frameLock);
-			if (sys->core) sys->core->MakeImGuiCurrent();
-			glfwSetWindowShouldClose(wnd, sys->initialised && sys->core->CanExit());
-			});
+			PobVideoRequestClose(sys);
 		});
 		glfwSetWindowIconifyCallback(wnd, [](GLFWwindow* wnd, int value) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
@@ -982,6 +1012,17 @@ int sys_video_c::Apply(sys_vidSet_s* set)
 		glfwSetKeyCallback(wnd, [](GLFWwindow* wnd, int key, int scancode, int action, int mods) {
 			auto sys = (sys_main_c*)glfwGetWindowUserPointer(wnd);
 			if (!sys) return;
+#if defined(__APPLE__)
+			// Command-comma, the system-wide "show me the settings".
+			//
+			// Taken before POB sees it, and answered on the spot rather than
+			// queued: the host shows its own window, which POB knows nothing
+			// about. POB has no use for the comma key, so nothing is lost.
+			if (key == GLFW_KEY_COMMA && action == GLFW_PRESS && (mods & GLFW_MOD_SUPER)) {
+				if (pob_host_settings_requested) pob_host_settings_requested();
+				return;
+			}
+#endif
 			sys->QueueInput([=] {
 			// Not while that engine is running a frame (sys_local.h), and
 			// this window's engine, not whichever was created last
@@ -1278,7 +1319,14 @@ void sys_video_c::GetRelativeCursor(int& x, int& y)
 	//
 	// Not while a button is down: a drag that leaves the window is still this
 	// window's, and POB follows it to wherever it is released.
-	if (!cursorInWindow && mouseButtonsDown == 0) {
+	// Asked of the window system, not remembered from an enter event.
+	//
+	// A window that appears under a motionless pointer never gets one: open
+	// POB, close it, open it again without moving the mouse, and the record
+	// says the pointer is elsewhere for as long as the window lives -- no
+	// clicks, no zoom, nothing but a picture.
+	const bool hovered = glfwGetWindowAttrib(wnd, GLFW_HOVERED) == GLFW_TRUE;
+	if (!hovered && mouseButtonsDown == 0) {
 		x = -1;
 		y = -1;
 		return;
@@ -1300,7 +1348,8 @@ bool sys_video_c::IsCursorOverWindow()
 {
 	if (initialised && wnd && IsVisible())
 	{
-		return cursorInWindow;
+		// Asked, not remembered: same reason as GetRelativeCursor.
+		return glfwGetWindowAttrib(wnd, GLFW_HOVERED) == GLFW_TRUE;
 	}
 	return true;
 }

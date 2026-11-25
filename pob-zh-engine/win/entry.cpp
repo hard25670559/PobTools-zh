@@ -149,9 +149,34 @@ extern "C" SIMPLEGRAPHIC_DLL_PUBLIC void PobEngineRequestClose(void* handle)
 {
 	if (!handle) return;
 	auto* sys = (sys_main_c*)handle;
-	if (GLFWwindow* w = (GLFWwindow*)sys->video->GetWindowHandle()) {
-		glfwSetWindowShouldClose(w, GLFW_TRUE);
-	}
+	// A POB that has already shut itself down has no video any more; asking
+	// that one to close would read memory it has given back.
+	if (!sys->video || !sys->core) return;
+
+	// Through POB's own question, not around it.
+	//
+	// Setting the close flag directly ends POB where it stands: a build with
+	// unsaved changes goes with it and nothing is asked. This is the same call
+	// the close button makes, so both ask.
+	PobVideoRequestClose(sys);
+}
+
+#if defined(__APPLE__)
+extern void (*pob_host_settings_requested)();
+#endif
+
+// Called when someone presses Command-comma in a POB window.
+//
+// macOS reserves that for "show me this program's settings", and with POB
+// running inside the launcher the launcher's own window is what that means.
+// It arrives on the main thread, from the key handler.
+extern "C" SIMPLEGRAPHIC_DLL_PUBLIC void PobEngineOnSettingsKey(void (*fn)())
+{
+#if defined(__APPLE__)
+	pob_host_settings_requested = fn;
+#else
+	(void)fn;
+#endif
 }
 
 extern "C" SIMPLEGRAPHIC_DLL_PUBLIC void PobEngineRunMainWork(void)
