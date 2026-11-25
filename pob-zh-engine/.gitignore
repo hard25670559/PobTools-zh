@@ -3,3 +3,6 @@
 /.idea
 /build-mac/
 /build-mac-dyn/
+
+# Claude Code 的本機工具設定
+.claude/
