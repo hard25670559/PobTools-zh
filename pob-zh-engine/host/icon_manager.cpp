@@ -116,7 +116,7 @@ void IconManager::Init(const std::wstring& exeDir)
 {
 	// Load the bundled name -> art-path index.
 	std::vector<unsigned char> idx;
-	if (read_file_bytes(exeDir + L"Data\\icon_paths.json", idx)) {
+	if (read_file_bytes(data_dir_for(exeDir) + L"Data\\icon_paths.json", idx)) {
 		try {
 			ordered_json doc = ordered_json::parse(std::string((const char*)idx.data(), idx.size()));
 			if (doc.is_object())
@@ -125,7 +125,7 @@ void IconManager::Init(const std::wstring& exeDir)
 		} catch (...) {}
 	}
 	// The worker starts even without the index: callers that already know an art path (atlas planner) need none.
-	cacheDir_ = exeDir + L"PobTools\\cache\\icons\\";
+	cacheDir_ = user_dir_for(exeDir) + L"PobTools\\cache\\icons\\";
 	SHCreateDirectoryExW(nullptr, cacheDir_.c_str(), nullptr); // best-effort
 
 	worker_ = std::thread(&IconManager::workerLoop, this);

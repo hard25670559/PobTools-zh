@@ -3,6 +3,7 @@
 // Rules come from the 3.30 reveal, pending GGPK verification. The three
 // assumptions (no type in two slots, a slot holds >= 1, keystone +2 only on the
 // allowed type) are listed in atlas_threads.h; change them there and here.
+#include "win_util.h"
 #include "atlas_threads.h"
 
 #if defined(_WIN32)
@@ -97,7 +98,7 @@ std::vector<const ThreadDef*> ThreadDb::Pickable(const std::vector<ThreadSlot>& 
 bool ThreadDb::Load(const std::wstring& exeDir, std::string* err)
 {
 	std::string body;
-	if (!thread_read_file(exeDir + L"Data\\threads_poe1.json", body)) {
+	if (!thread_read_file(data_dir_for(exeDir) + L"Data\\threads_poe1.json", body)) {
 		defs_.clear();
 		byId_.clear();
 		source_.clear();

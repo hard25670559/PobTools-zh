@@ -1,3 +1,4 @@
+#include "win_util.h"
 #include "tool_window.h"
 #include "error_log.h"
 
@@ -82,7 +83,7 @@ int RunToolWindow(IToolPanel& panel, const ToolWindowDesc& desc,
 	glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 
 	// Same scale rule as the launcher: monitor content scale times the ini's font-size zoom (followed while open, ToolZoom::Watch).
-	const std::wstring iniPath = exeDir + L"pob-zh.ini";
+	const std::wstring iniPath = user_dir_for(exeDir) + L"pob-zh.ini";
 	const std::uint64_t iniStampAtStart = IniStamp(iniPath);
 	const LauncherConfig startCfg = LoadLauncherConfig(iniPath);
 	const float zoom = LauncherZoom(startCfg.fontSize);
@@ -190,7 +191,7 @@ int RunToolWindow(IToolPanel& panel, const ToolWindowDesc& desc,
 		// Every other shipped font, merged as glyph fallbacks (tools draw zh-rCN text; Noto Sans TC lacks simplified-only glyphs). Static: the atlas keeps the pointers.
 		fallbackTtfs.clear();
 		for (const std::wstring& f : ListAvailableFonts(exeDir)) {
-			const std::wstring p = exeDir + L"Fonts\\" + f;
+			const std::wstring p = data_dir_for(exeDir) + L"Fonts\\" + f;
 			if (_wcsicmp(p.c_str(), primaryFontPath.c_str()) == 0) continue;
 			std::vector<unsigned char> fb = EdReadFile(p);
 			if (!fb.empty()) fallbackTtfs.push_back(std::move(fb));

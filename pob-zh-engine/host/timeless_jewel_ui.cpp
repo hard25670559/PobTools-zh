@@ -147,7 +147,7 @@ std::string TradeSearchUrl(int realmIdx, const std::string& league, int platform
 
 static std::wstring tj_ui_path(const std::wstring& exeDir)
 {
-	return exeDir + L"PobTools\\tj_ui.json";
+	return user_dir_for(exeDir) + L"PobTools\\tj_ui.json";
 }
 
 bool TjUiState::Load(const std::wstring& exeDir)
@@ -168,7 +168,7 @@ bool TjUiState::Load(const std::wstring& exeDir)
 
 bool TjUiState::Save(const std::wstring& exeDir) const
 {
-	CreateDirectoryW((exeDir + L"PobTools").c_str(), nullptr);
+	CreateDirectoryW((user_dir_for(exeDir) + L"PobTools").c_str(), nullptr);
 	nlohmann::json doc;
 	doc["realm"] = realm;
 	doc["platform"] = platform;
@@ -594,7 +594,7 @@ public:
 
 		// Data first: a clear message beats an empty window.
 		ds = std::make_shared<TJDataset>();
-		if (!ds->Load(exeDir + L"Data\\timeless_jewels.json", &derr)) {
+		if (!ds->Load(data_dir_for(exeDir) + L"Data\\timeless_jewels.json", &derr)) {
 			// Reported, not shown: this runs inside the launcher's frame. See
 			// IToolPanel::InitError.
 			// The panel message is deliberately short; `derr` says which file and
@@ -3295,7 +3295,7 @@ int RunTradeRealmCheck(const std::wstring& exeDir)
 
 	TJDataset ds;
 	std::string err;
-	if (!ds.Load(exeDir + L"Data\\timeless_jewels.json", &err)) {
+	if (!ds.Load(data_dir_for(exeDir) + L"Data\\timeless_jewels.json", &err)) {
 		line("FAIL  load timeless_jewels.json: " + err);
 		return 1;
 	}

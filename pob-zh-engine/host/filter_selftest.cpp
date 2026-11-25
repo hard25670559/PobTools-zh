@@ -1,3 +1,4 @@
+#include "win_util.h"
 #include "filter_selftest.h"
 #include "filter_parser.h"
 #include "filter_doc_editor.h"
@@ -520,7 +521,7 @@ int RunFilterSelfTest(const std::wstring& exeDir)
 		std::vector<FilterListEntry> found;
 		{
 			FilterListEntry e;
-			e.path = exeDir + L"Filters\\default.filter";
+			e.path = data_dir_for(exeDir) + L"Filters\\default.filter";
 			e.name = "Filters\\default.filter";
 			if (GetFileAttributesW(e.path.c_str()) != INVALID_FILE_ATTRIBUTES) found.push_back(e);
 		}
@@ -1872,7 +1873,7 @@ int RunFilterSelfTest(const std::wstring& exeDir)
 		// T34g: every rule of the real NeverSink file
 		{
 			bool ok = false;
-			FilterFile f = LoadFilter(exeDir + L"Filters\\default.filter", &ok);
+			FilterFile f = LoadFilter(data_dir_for(exeDir) + L"Filters\\default.filter", &ok);
 			if (!ok) {
 				rep.note("T34g skipped: Filters\\default.filter not readable");
 			} else {
@@ -2045,7 +2046,7 @@ int RunFilterSelfTest(const std::wstring& exeDir)
 		// T37e: the real NeverSink file, a rare ring
 		{
 			bool ok = false;
-			const FilterFile f = LoadFilter(exeDir + L"Filters\\default.filter", &ok);
+			const FilterFile f = LoadFilter(data_dir_for(exeDir) + L"Filters\\default.filter", &ok);
 			if (!ok) {
 				rep.note("T37e skipped: Filters\\default.filter not readable");
 			} else {
@@ -2353,7 +2354,7 @@ int RunFilterSelfTest(const std::wstring& exeDir)
 		// T39h: the real NeverSink file, three rules edited, NeverSink unchanged
 		{
 			bool ok = false;
-			const FilterFile base = LoadFilter(exeDir + L"Filters\\default.filter", &ok);
+			const FilterFile base = LoadFilter(data_dir_for(exeDir) + L"Filters\\default.filter", &ok);
 			if (!ok) {
 				rep.note("T39h skipped: Filters\\default.filter not readable");
 			} else {
@@ -2384,7 +2385,7 @@ int RunFilterSelfTest(const std::wstring& exeDir)
 				rep.check(j.rules.size() == 3, "T39h three edited rules are recorded", "n=" + std::to_string(j.rules.size()));
 				Sess s;
 				bool ok2 = false;
-				s.f = LoadFilter(exeDir + L"Filters\\default.filter", &ok2);
+				s.f = LoadFilter(data_dir_for(exeDir) + L"Filters\\default.filter", &ok2);
 				s.doc.Attach(&s.f);
 				const JournalReport r = JournalApply(j, s.doc, {});
 				bool allSame = !picked.empty();
@@ -2750,7 +2751,7 @@ int RunFilterSelfTest(const std::wstring& exeDir)
 			FindClose(h);
 		}
 		bool ok = false;
-		const FilterFile base = LoadFilter(exeDir + L"Filters\\default.filter", &ok);
+		const FilterFile base = LoadFilter(data_dir_for(exeDir) + L"Filters\\default.filter", &ok);
 		std::string onlineText;
 		if (!onlinePath.empty()) {
 			std::ifstream in(fs_path(onlinePath), std::ios::binary);
@@ -2817,7 +2818,7 @@ int RunFilterSelfTest(const std::wstring& exeDir)
 	// T31: undo capture cost on the real NeverSink file
 	{
 		bool ok = false;
-		FilterFile f = LoadFilter(exeDir + L"Filters\\default.filter", &ok);
+		FilterFile f = LoadFilter(data_dir_for(exeDir) + L"Filters\\default.filter", &ok);
 		if (!ok) {
 			rep.note("T31 skipped: no Filters\\default.filter next to the exe");
 		} else {
@@ -2945,7 +2946,7 @@ int RunFilterImportProbe(const std::wstring& exeDir, const std::wstring& itemFil
 
 	int rc = r.ok ? 0 : 1;
 	if (r.ok) {
-		std::wstring fpath = filterFile.empty() ? exeDir + L"Filters\\default.filter"
+		std::wstring fpath = filterFile.empty() ? data_dir_for(exeDir) + L"Filters\\default.filter"
 		                                        : filterFile;
 		bool okF = false;
 		FilterFile f = LoadFilter(fpath, &okF);

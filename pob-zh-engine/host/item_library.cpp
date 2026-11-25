@@ -19,8 +19,8 @@ void ItemLibrary::Load(const std::wstring& exeDir, const FilterI18n& i18n)
 
 	// Complete name set (bases + gems + uniques); fall back to the icon index.
 	std::string content;
-	if (!read_file_utf8(exeDir + L"Data\\filter_items_zh.json", content) &&
-	    !read_file_utf8(exeDir + L"Data\\icon_paths.json", content))
+	if (!read_file_utf8(data_dir_for(exeDir) + L"Data\\filter_items_zh.json", content) &&
+	    !read_file_utf8(data_dir_for(exeDir) + L"Data\\icon_paths.json", content))
 		return;
 
 	ordered_json doc;

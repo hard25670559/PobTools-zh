@@ -1,3 +1,4 @@
+#include "win_util.h"
 #include "window_manager.h"
 
 #if defined(_WIN32)
@@ -309,8 +310,8 @@ int RunWindowLayoutSelfTest(const std::wstring& exeDir)
 	check("D7 the suite actually ran", ran >= 32, std::to_string(ran) + " checks");
 
 	report += failures ? "RESULT FAIL\n" : "RESULT PASS\n";
-	CreateDirectoryW((exeDir + L"PobTools").c_str(), nullptr);
-	HANDLE h = CreateFileW((exeDir + L"PobTools\\window_layout_selftest.txt").c_str(),
+	CreateDirectoryW((user_dir_for(exeDir) + L"PobTools").c_str(), nullptr);
+	HANDLE h = CreateFileW((user_dir_for(exeDir) + L"PobTools\\window_layout_selftest.txt").c_str(),
 	                       GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
 	if (h != INVALID_HANDLE_VALUE) {
 		DWORD w = 0;

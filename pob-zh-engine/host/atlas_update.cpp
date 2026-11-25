@@ -512,7 +512,7 @@ bool AtlasUpdater::doUpdate(std::string* err)
 		st_.filesTotal = 0;
 	}
 
-	std::wstring cacheDir = exeDir_ + L"PobTools\\cache\\atlas_update\\" + widen(tag) + L"\\";
+	std::wstring cacheDir = user_dir_for(exeDir_) + L"PobTools\\cache\\atlas_update\\" + widen(tag) + L"\\";
 	SHCreateDirectoryExW(nullptr, (cacheDir + L"assets").c_str(), nullptr);
 
 	HttpsClient raw(kRawHost);
@@ -656,7 +656,7 @@ int RunAtlasUpdateCli(const std::wstring& exeDir)
 	u.exeDir_ = exeDir;
 	{
 		std::string content;
-		if (read_file_utf8(exeDir + L"Data\\atlas_version.json", content)) {
+		if (read_file_utf8(data_dir_for(exeDir) + L"Data\\atlas_version.json", content)) {
 			try {
 				ordered_json v = ordered_json::parse(content);
 				u.tag_ = v.value("tag", std::string());

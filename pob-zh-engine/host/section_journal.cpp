@@ -2,6 +2,7 @@
 // recorded at every save and offered back when the file is a newer NeverSink
 // (a banner, then a dialog listing what applies, what both of you changed and
 // what the new version no longer has). The merge itself is filter_edit_journal.
+#include "win_util.h"
 #include "editor_shell.h"
 #include "editor_util.h"
 #include "filter_edit_journal.h"
@@ -38,7 +39,7 @@ std::wstring JournalDir(const EditorShell& s)
 		GetTempPathW(MAX_PATH, tmp);
 		return std::wstring(tmp) + L"pobtools_fe_journal\\";
 	}
-	return s.exeDir + L"PobTools\\filter_edits\\";
+	return user_dir_for(s.exeDir) + L"PobTools\\filter_edits\\";
 }
 
 std::string SettingZh(const std::string& setting)

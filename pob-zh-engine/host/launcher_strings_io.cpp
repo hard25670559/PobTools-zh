@@ -90,7 +90,7 @@ int RunLauncherStringsExport(const std::wstring& exeDir, const std::wstring& loc
 	// key present, untranslated ones visibly equal to their key. The keys ARE the
 	// English strings, so an "en" folder is never written.
 	const bool compiled = (locale == L"zh-rTW");
-	const std::wstring dir = exeDir + L"Data\\launcher\\" + locale + L"\\";
+	const std::wstring dir = data_dir_for(exeDir) + L"Data\\launcher\\" + locale + L"\\";
 	std::string localeUtf8;
 	{
 		int n = WideCharToMultiByte(CP_UTF8, 0, locale.c_str(), (int)locale.size(), nullptr, 0, nullptr, nullptr);
@@ -104,8 +104,8 @@ int RunLauncherStringsExport(const std::wstring& exeDir, const std::wstring& loc
 
 	// Every level: CreateDirectoryW does not create parents, and the selftest
 	// exports into a fresh sandbox where none of them exist yet.
-	CreateDirectoryW((exeDir + L"Data").c_str(), nullptr);
-	CreateDirectoryW((exeDir + L"Data\\launcher").c_str(), nullptr);
+	CreateDirectoryW((data_dir_for(exeDir) + L"Data").c_str(), nullptr);
+	CreateDirectoryW((data_dir_for(exeDir) + L"Data\\launcher").c_str(), nullptr);
 	CreateDirectoryW(dir.c_str(), nullptr);
 
 	// ⚠ MERGE, never overwrite. package_release.ps1 runs this on EVERY package and
@@ -476,7 +476,7 @@ int RunLauncherStringsSelfTest(const std::wstring& exeDir)
 	rm_tree(sandbox);
 
 	report += failures ? "RESULT FAIL\n" : "RESULT PASS\n";
-	CreateDirectoryW((exeDir + L"PobTools").c_str(), nullptr);
-	write_file_bytes(exeDir + L"PobTools\\launcher_strings_selftest.txt", report);
+	CreateDirectoryW((user_dir_for(exeDir) + L"PobTools").c_str(), nullptr);
+	write_file_bytes(user_dir_for(exeDir) + L"PobTools\\launcher_strings_selftest.txt", report);
 	return failures ? 2 : 0;
 }

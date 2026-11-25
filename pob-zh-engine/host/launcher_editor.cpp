@@ -419,7 +419,7 @@ public:
 
 		// The dictionaries the ENGINE will read, per slot (editing the built-in copy while POB reads an
 		// external one is the failure to avoid). Resolved once: switching must not re-read the ini mid-edit.
-		editCfg = LoadLauncherConfig(exeDir + L"pob-zh.ini");
+		editCfg = LoadLauncherConfig(user_dir_for(exeDir) + L"pob-zh.ini");
 		for (int i = 0; i < kDictSlotCount; i++)
 			slotDir[i] = ResolveDictDir(exeDir, (DictSlot)i, editCfg.dataDir[i]);
 

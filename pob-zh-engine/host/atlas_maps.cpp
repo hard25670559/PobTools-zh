@@ -1,3 +1,4 @@
+#include "win_util.h"
 #include "atlas_maps.h"
 
 #include "atlas_stat_agg.h" // ToLowerAscii
@@ -39,7 +40,7 @@ bool AtlasMapDb::Load(const std::wstring& exeDir, std::string* err)
 	series_.clear();
 
 	std::string body;
-	if (!map_read_file(exeDir + L"Data\\atlas_maps_poe1.json", body)) {
+	if (!map_read_file(data_dir_for(exeDir) + L"Data\\atlas_maps_poe1.json", body)) {
 		if (err) *err = u8"找不到 Data\\atlas_maps_poe1.json";
 		return false;
 	}

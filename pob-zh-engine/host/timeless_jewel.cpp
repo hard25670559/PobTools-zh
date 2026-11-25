@@ -1,3 +1,4 @@
+#include "win_util.h"
 #include "timeless_jewel.h"
 #include "timeless_jewel_abyss.h" // engine boundary assertions in the selftest
 #include "launcher_config.h" // FindPoe1Dir
@@ -870,7 +871,7 @@ static void ensure_console()
 
 static bool load_dataset(const std::wstring& exeDir, TJDataset& ds, std::string* err)
 {
-	return ds.Load(exeDir + L"Data\\timeless_jewels.json", err);
+	return ds.Load(data_dir_for(exeDir) + L"Data\\timeless_jewels.json", err);
 }
 
 int RunTimelessJewelCli(const std::wstring& exeDir, int jewelType, int seed, int nodeId)
@@ -1741,7 +1742,7 @@ int RunTimelessJewelSelfTest(const std::wstring& exeDir)
 		// because that is what breaks (encoding, missing dir); the user's own
 		// state is saved and put back afterwards.
 		{
-			std::wstring path = exeDir + L"PobTools\\tj_ui.json";
+			std::wstring path = user_dir_for(exeDir) + L"PobTools\\tj_ui.json";
 			TjUiState saved;
 			bool had = saved.Load(exeDir);
 

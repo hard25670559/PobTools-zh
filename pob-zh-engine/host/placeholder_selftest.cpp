@@ -383,7 +383,7 @@ int RunPlaceholderSelftest()
 	// 3. 兩支掃描器不得漂開:填值用的數值格與 extract_numbers 是同一套規則的兩個出口;全字典比對,並斷言 checked > 0(只數 bad == 0 是空洞判準)。
 	printf("\n== 3. 數值格 vs extract_numbers(全字典) ==\n");
 	{
-		EditorModel model = LoadModel(exe_dir() + L"Data\\poe1\\", "zh-rTW");
+		EditorModel model = LoadModel(data_dir() + L"Data\\poe1\\", "zh-rTW");
 		int checked = 0, bad = 0, withSlots = 0;
 		for (const EditorEntry& e : model.entries) {
 			if (e.key.empty() || e.value.empty()) continue;
@@ -443,7 +443,7 @@ int RunPlaceholderDump(const std::wstring& outPath, const std::string& game, boo
 	printf("fill mode = %s\n", legacy ? "LEGACY (照出現順序)" : "BY-INDEX (照編號)");
 	translation_init();
 
-	std::wstring root = exe_dir() + L"Data\\" + std::wstring(game.begin(), game.end()) + L"\\";
+	std::wstring root = data_dir() + L"Data\\" + std::wstring(game.begin(), game.end()) + L"\\";
 	EditorModel model = LoadModel(root, "zh-rTW");
 	if (!model.localeExists) {
 		printf("no %s/zh-rTW dictionary next to the exe\n", game.c_str());

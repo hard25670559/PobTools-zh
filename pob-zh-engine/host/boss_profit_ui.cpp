@@ -196,11 +196,11 @@ private:
 		BossResult r;
 	};
 
-	std::wstring overridesPath() const { return exeDir_ + L"PobTools\\boss_profit_ui.json"; }
+	std::wstring overridesPath() const { return user_dir_for(exeDir_) + L"PobTools\\boss_profit_ui.json"; }
 
 	void saveOverrides()
 	{
-		CreateDirectoryW((exeDir_ + L"PobTools").c_str(), nullptr);
+		CreateDirectoryW((user_dir_for(exeDir_) + L"PobTools").c_str(), nullptr);
 		std::ofstream f(fs_path(overridesPath()), std::ios::binary | std::ios::trunc);
 		const std::string s = SerializeBossOverrides(ov_);
 		if (!f || !f.write(s.data(), (std::streamsize)s.size()))

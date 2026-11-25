@@ -1,6 +1,7 @@
 // must precede every imgui.h include (passive_tree_view.h pulls it in)
 #define IMGUI_DEFINE_MATH_OPERATORS
 
+#include "win_util.h"
 #include "passive_tree_view.h"
 #include "editor_util.h"   // EdReadFile / EdWiden
 #include "image_tex.h"
@@ -40,7 +41,7 @@ bool PassiveTreeView::LoadTextures(const std::wstring& exeDir, const PassiveTree
 	// Sheet sources, in order: the bundled Data\tree\ folder (shipped for leagues
 	// PoB doesn't have yet), then the user's PoB TreeData\<ver>\ (the normal
 	// source once PoB itself updates to this league).
-	std::wstring bundled = exeDir + L"Data\\tree\\";
+	std::wstring bundled = data_dir_for(exeDir) + L"Data\\tree\\";
 	std::wstring poe1Base = FindPoe1Dir(exeDir); // L"" when no PoB install detected
 	std::wstring pobBase = poe1Base.empty() ? L"" : poe1Base + L"TreeData\\" + EdWiden(d.TreeVersion()) + L"\\";
 	tex_.assign(d.sheets.size(), 0);

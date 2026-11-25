@@ -130,7 +130,7 @@ int RunPasteCensus(const std::wstring& outPath, const std::string& shell)
 	translation_init();
 
 	// The census is about the SHIPPED dictionary: it always reads the built-in root, not a configured external one.
-	EditorModel model = LoadModel(exe_dir() + L"Data\\poe1\\", "zh-rTW");
+	EditorModel model = LoadModel(data_dir() + L"Data\\poe1\\", "zh-rTW");
 	if (!model.localeExists) {
 		printf("no poe1/zh-rTW dictionary next to the exe\n");
 		return 2;

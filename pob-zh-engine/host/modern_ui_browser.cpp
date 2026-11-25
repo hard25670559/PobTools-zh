@@ -358,11 +358,11 @@ struct Server {
 	{
 		struct Root { const char* name; std::wstring dir; };
 		const Root roots[] = {
-			{ "~pob/", pobDir + L"\\" }, { "~data/", exeDir + L"Data\\" }, { "~fonts/", exeDir + L"Fonts\\" },
-			{ "~cache/", exeDir + L"PobTools\\cache\\" }, { "~bg/", BackgroundsDir(exeDir) },
+			{ "~pob/", pobDir + L"\\" }, { "~data/", data_dir_for(exeDir) + L"Data\\" }, { "~fonts/", data_dir_for(exeDir) + L"Fonts\\" },
+			{ "~cache/", user_dir_for(exeDir) + L"PobTools\\cache\\" }, { "~bg/", BackgroundsDir(exeDir) },
 		};
 		std::string sub = rel;
-		std::wstring root = exeDir + L"ui\\";
+		std::wstring root = data_dir_for(exeDir) + L"ui\\";
 		isApp = true;
 		for (const Root& r : roots) {
 			size_t n = strlen(r.name);
@@ -371,7 +371,7 @@ struct Server {
 		// the session's address is the folder. Re-read the theme per request: Launch reuses a live session, and the
 		// user may have picked the other theme since it started. Classic (0) names no page: keep the launch theme
 		if (isApp && (sub.empty() || sub.back() == '/')) {
-			int mode = LoadLauncherConfig(exeDir + L"pob-zh.ini").uiMode;
+			int mode = LoadLauncherConfig(user_dir_for(exeDir) + L"pob-zh.ini").uiMode;
 			sub += narrow(ModernUiPage(mode ? mode : cfg.uiMode));
 		}
 		// no climbing, no drive letters, no backslashes smuggled in
@@ -630,7 +630,7 @@ struct Server {
 
 std::wstring UrlFile(const std::wstring& exeDir, const std::wstring& game)
 {
-	return exeDir + L"PobTools\\modern_ui_url_" + (game == L"poe2" ? std::wstring(L"poe2") : std::wstring(L"poe1")) + L".txt";
+	return user_dir_for(exeDir) + L"PobTools\\modern_ui_url_" + (game == L"poe2" ? std::wstring(L"poe2") : std::wstring(L"poe1")) + L".txt";
 }
 
 // One short request to our own loopback server: status code, or -1.
@@ -701,9 +701,9 @@ bool ModernUiBrowserStop(const std::wstring& exeDir, const std::wstring& game)
 bool ModernUiBrowserAvailable(const std::wstring& exeDir)
 {
 	#if defined(_WIN32)
-	return file_exists(exeDir + L"ui\\index.html") && file_exists(exeDir + L"ui\\theme2.html");
+	return file_exists(data_dir_for(exeDir) + L"ui\\index.html") && file_exists(data_dir_for(exeDir) + L"ui\\theme2.html");
 #else
-	return file_exists(exeDir + L"ui/index.html") && file_exists(exeDir + L"ui/theme2.html");
+	return file_exists(data_dir_for(exeDir) + L"ui/index.html") && file_exists(data_dir_for(exeDir) + L"ui/theme2.html");
 #endif
 }
 
@@ -737,8 +737,8 @@ int ShowModernUiInBrowser(const std::wstring& exeDir, const std::wstring& game,
 		MessageBoxW(nullptr, L"找不到 Path of Building 安裝資料夾(Launch.lua)。", L"PobTools", MB_ICONERROR | MB_OK);
 		return 1;
 	}
-	CreateDirectoryW((exeDir + L"PobTools").c_str(), nullptr);
-	CreateDirectoryW((exeDir + L"PobTools\\cache").c_str(), nullptr);
+	CreateDirectoryW((user_dir_for(exeDir) + L"PobTools").c_str(), nullptr);
+	CreateDirectoryW((user_dir_for(exeDir) + L"PobTools\\cache").c_str(), nullptr);
 	wchar_t noBrowser[8] = {};
 	const bool openBrowser = !GetEnvironmentVariableW(L"POB_ZH_NO_BROWSER", noBrowser, 8);
 	// One per game: launching again while it runs opens the running one's page

@@ -92,7 +92,7 @@ std::wstring SanitizeForFile(const std::string& s)
 std::wstring CachePath(const std::wstring& exeDir, const std::string& game,
                        const std::string& league)
 {
-	return exeDir + L"PobTools\\cache\\ninja\\" + widen(game) + L"_" +
+	return user_dir_for(exeDir) + L"PobTools\\cache\\ninja\\" + widen(game) + L"_" +
 	       SanitizeForFile(league) + L".json";
 }
 
@@ -368,7 +368,7 @@ static long long UnixOf(const FILETIME& ft)
 
 int PruneNinjaCache(const std::wstring& exeDir, long long nowUtc, int maxAgeDays)
 {
-	const std::wstring dir = exeDir + L"PobTools\\cache\\ninja\\";
+	const std::wstring dir = user_dir_for(exeDir) + L"PobTools\\cache\\ninja\\";
 	WIN32_FIND_DATAW fd{};
 	HANDLE f = FindFirstFileW((dir + L"poe?_*").c_str(), &fd);
 	if (f == INVALID_HANDLE_VALUE) return 0;
@@ -433,9 +433,9 @@ bool NinjaPriceSource::loadCache(const std::string& game, const std::string& lea
 
 void NinjaPriceSource::saveCache() const
 {
-	CreateDirectoryW((exeDir_ + L"PobTools").c_str(), nullptr);
-	CreateDirectoryW((exeDir_ + L"PobTools\\cache").c_str(), nullptr);
-	CreateDirectoryW((exeDir_ + L"PobTools\\cache\\ninja").c_str(), nullptr);
+	CreateDirectoryW((user_dir_for(exeDir_) + L"PobTools").c_str(), nullptr);
+	CreateDirectoryW((user_dir_for(exeDir_) + L"PobTools\\cache").c_str(), nullptr);
+	CreateDirectoryW((user_dir_for(exeDir_) + L"PobTools\\cache\\ninja").c_str(), nullptr);
 	ordered_json doc;
 	doc["schema"] = 3;
 	doc["game"] = game_;

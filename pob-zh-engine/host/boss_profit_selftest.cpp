@@ -3,6 +3,7 @@
 // Prices come from a local map (the only mocked I/O); the calculator itself is never mocked.
 // T13 reads the shipped Data\boss_drops_poe1.json next to the exe. No network, no files written
 // except the report itself.
+#include "win_util.h"
 #include "filter_i18n.h"
 #include "boss_profit.h"
 #include "boss_profit_tool.h"
@@ -440,7 +441,7 @@ int RunBossProfitSelftest(const std::wstring& exeDir)
 
 	// T13 the shipped data file
 	{
-		const std::string body = ReadFileForTest(exeDir + L"Data\\boss_drops_poe1.json");
+		const std::string body = ReadFileForTest(data_dir_for(exeDir) + L"Data\\boss_drops_poe1.json");
 		BossDb db;
 		std::string err;
 		const bool ok = !body.empty() && LoadBossDb(body, &db, &err);

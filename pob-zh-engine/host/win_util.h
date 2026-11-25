@@ -115,3 +115,87 @@ inline std::wstring exe_dir()
 	size_t slash = s.find_last_of(L"/\\");  // both: the launcher runs on either platform
 	return slash == std::wstring::npos ? L"" : s.substr(0, slash + 1);
 }
+
+// Where the user's own things live: settings, the POB installs, logs.
+//
+// On Windows this is the install directory, as it has always been -- the
+// program is portable and everything travels with it.
+//
+// On macOS a program lives in /Applications inside a bundle that is signed and
+// replaced wholesale by an update, so nothing of the user's can be kept there.
+// It goes under Application Support instead, which survives the app being
+// replaced and is what the system expects a program to write to.
+inline std::wstring user_dir()
+{
+#if defined(__APPLE__)
+	const char* home = ::getenv("HOME");
+	if (!home || !*home) return exe_dir();
+	std::string path = std::string(home) + "/Library/Application Support/PobTools/";
+	std::wstring w(path.begin(), path.end());   // the path is ASCII: HOME plus a fixed tail
+	return w;
+#else
+	return exe_dir();
+#endif
+}
+
+// Where the program's own read-only files live: dictionaries, fonts, the
+// interface's files, the sample filter.
+//
+// On Windows this is the install directory, as it has always been.
+//
+// On macOS an app bundle may only keep executables in Contents/MacOS; data
+// belongs in Contents/Resources, and code signing refuses a bundle that puts
+// it anywhere else. The program is in MacOS, so its data is one level up.
+#if defined(__APPLE__)
+// The bundle's own copy, which is read-only and replaced wholesale by an
+// update. Seeded into the user directory once (host_main.cpp), and read from
+// there afterwards.
+inline std::wstring bundled_data_dir()
+{
+	return exe_dir() + L"../Resources/";
+}
+#endif
+
+inline std::wstring data_dir()
+{
+#if defined(__APPLE__)
+	// The user's copy. Translation data is updated between app releases, and
+	// the bundle cannot be written to: an app in /Applications is signed, and
+	// writing one byte into it breaks the signature for good.
+	//
+	// Seeded from the bundle on first run, so this is only ever missing before
+	// that -- then the bundle's copy stands in rather than nothing at all.
+	const std::wstring u = user_dir();
+	if (u != exe_dir() && dir_exists(u + L"Data")) return u;
+	return bundled_data_dir();
+#else
+	return exe_dir();
+#endif
+}
+
+// The resource directory for a given install directory, with the same reason
+// as user_dir_for below: a self-test's sandbox stays its own.
+inline std::wstring data_dir_for(const std::wstring& installDir)
+{
+#if defined(__APPLE__)
+	return installDir == exe_dir() ? data_dir() : installDir;
+#else
+	(void)installDir;
+	return installDir;
+#endif
+}
+
+// The user directory for a given install directory.
+//
+// Callers pass the install directory they were given, which in a self-test is a
+// sandbox rather than the real one. Only the real install reads and writes the
+// real user directory; a test keeps everything inside its sandbox.
+inline std::wstring user_dir_for(const std::wstring& installDir)
+{
+#if defined(__APPLE__)
+	return installDir == exe_dir() ? user_dir() : installDir;
+#else
+	(void)installDir;
+	return installDir;
+#endif
+}

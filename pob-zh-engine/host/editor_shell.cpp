@@ -1,3 +1,4 @@
+#include "win_util.h"
 #include "editor_shell.h"
 #include "editor_util.h"
 #include "filter_parser.h"
@@ -315,7 +316,7 @@ std::vector<std::uint32_t> DecodeRecentColors(const std::string& text)
 
 void LoadEditorSettings(EditorShell& s)
 {
-	std::wstring ini = s.exeDir + L"pob-zh.ini";
+	std::wstring ini = user_dir_for(s.exeDir) + L"pob-zh.ini";
 	wchar_t rc[512] = L"";
 	GetPrivateProfileStringW(L"PobTools", L"FilterRecentColors", L"", rc, 512, ini.c_str());
 	s.recentColors = DecodeRecentColors(EdNarrow(rc));
@@ -324,7 +325,7 @@ void LoadEditorSettings(EditorShell& s)
 void SaveEditorSettings(EditorShell& s)
 {
 	if (s.testMode) return;   // a test run writes nothing
-	std::wstring ini = s.exeDir + L"pob-zh.ini";
+	std::wstring ini = user_dir_for(s.exeDir) + L"pob-zh.ini";
 	WritePrivateProfileStringW(L"PobTools", L"FilterRecentColors", EdWiden(EncodeRecentColors(s.recentColors)).c_str(),
 	                           ini.c_str());
 }

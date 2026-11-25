@@ -106,7 +106,7 @@ static void remove_cache_dir(const std::wstring& dir)
 static std::string read_bundled_tree_version(const std::wstring& exeDir)
 {
 	std::string content;
-	if (!read_file_utf8(exeDir + L"Data\\passive_tree_poe1.json", content)) return std::string();
+	if (!read_file_utf8(data_dir_for(exeDir) + L"Data\\passive_tree_poe1.json", content)) return std::string();
 	const std::string key = "\"treeVersion\":\"";
 	size_t pos = content.compare(0, 1, "{") == 0 ? content.find(key, 0) : std::string::npos;
 	if (pos == std::string::npos || pos > 4096) return std::string();
@@ -238,7 +238,7 @@ bool PassiveTreeUpdater::doUpdate(std::string* err)
 
 	setPhase(PassiveUpdatePhase::Downloading, u8"下載 " + tag + u8" 天賦樹資料中…");
 
-	std::wstring cacheDir = exeDir_ + L"PobTools\\cache\\pt_update\\" + widen(tag) + L"\\";
+	std::wstring cacheDir = user_dir_for(exeDir_) + L"PobTools\\cache\\pt_update\\" + widen(tag) + L"\\";
 	SHCreateDirectoryExW(nullptr, (cacheDir + L"assets").c_str(), nullptr);
 
 	HttpsClient raw(kRawHost);

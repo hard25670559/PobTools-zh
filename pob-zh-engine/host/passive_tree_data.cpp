@@ -45,7 +45,7 @@ bool PassiveTreeData::Load(const std::wstring& exeDir, std::string* err)
 	masteries.clear(); groupbg.clear();
 
 	std::string content;
-	if (!read_file_utf8(exeDir + L"Data\\passive_tree_poe1.json", content)) {
+	if (!read_file_utf8(data_dir_for(exeDir) + L"Data\\passive_tree_poe1.json", content)) {
 		if (err) *err = "Data/passive_tree_poe1.json not found or unreadable";
 		return false;
 	}
@@ -281,7 +281,7 @@ int RunPassiveTreeSelfTest(const std::wstring& exeDir)
 	{
 		TJDataset ds;
 		std::string terr;
-		if (ds.Load(exeDir + L"Data\\timeless_jewels.json", &terr)) {
+		if (ds.Load(data_dir_for(exeDir) + L"Data\\timeless_jewels.json", &terr)) {
 			int total = 0, covered = 0;
 			for (const PtNode& n : d.nodes) {
 				if (n.kind == kPtSocket) continue;

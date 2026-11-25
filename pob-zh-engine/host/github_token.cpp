@@ -1,3 +1,4 @@
+#include "win_util.h"
 #include "github_token.h"
 
 #if defined(_WIN32)
@@ -46,7 +47,7 @@ PT_GITHUB_ERRORS(PT_DEFINE)
 
 std::wstring Path(const std::wstring& exeDir)
 {
-	return exeDir + L"PobTools\\github_token.bin";
+	return user_dir_for(exeDir) + L"PobTools\\github_token.bin";
 }
 
 bool Fail(std::string* err, const char* message)
@@ -181,7 +182,7 @@ bool Save(const std::wstring& exeDir, const std::string& input, std::string* err
 	Wipe(token);
 	if (!encrypted) return Fail(err, kEncryptFailed);
 
-	CreateDirectoryW((exeDir + L"PobTools").c_str(), nullptr);
+	CreateDirectoryW((user_dir_for(exeDir) + L"PobTools").c_str(), nullptr);
 	const std::wstring temp = path + L".tmp";
 	HANDLE file = CreateFileW(temp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
 	                          FILE_ATTRIBUTE_NORMAL, nullptr);

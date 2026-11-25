@@ -342,7 +342,7 @@ static std::string to_lower_ascii(std::string s)
 // Append one line to PobTools\app_update_log.txt (worker failures, CLI runs).
 static void log_line(const std::wstring& exeDir, const std::string& msg)
 {
-	std::wstring dir = exeDir + L"PobTools";
+	std::wstring dir = user_dir_for(exeDir) + L"PobTools";
 	CreateDirectoryW(dir.c_str(), nullptr);
 	HANDLE h = CreateFileW((dir + L"\\app_update_log.txt").c_str(), FILE_APPEND_DATA,
 	                       FILE_SHARE_READ, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -573,7 +573,7 @@ void AppUpdater::loadState()
 	latestSeen_.clear();
 	lastCheckUtc_ = 0;
 	std::string content;
-	if (read_file_utf8(exeDir_ + L"PobTools\\update_state.json", content)) {
+	if (read_file_utf8(user_dir_for(exeDir_) + L"PobTools\\update_state.json", content)) {
 		try {
 			ordered_json v = ordered_json::parse(content);
 			appliedTrans_ = v.value("appliedTranslations", std::string());
@@ -595,14 +595,14 @@ void AppUpdater::loadState()
 
 void AppUpdater::saveState()
 {
-	CreateDirectoryW((exeDir_ + L"PobTools").c_str(), nullptr);
+	CreateDirectoryW((user_dir_for(exeDir_) + L"PobTools").c_str(), nullptr);
 	ordered_json v;
 	v["lastCheckUtc"] = (long long)lastCheckUtc_;
 	v["stateApp"] = POBTOOLS_VERSION_STRING;
 	v["latestSeen"] = latestSeen_;
 	v["appliedTranslations"] = appliedTrans_;
 	v["appliedApp"] = appliedApp_;
-	write_file_atomic(exeDir_ + L"PobTools\\update_state.json", v.dump(2));
+	write_file_atomic(user_dir_for(exeDir_) + L"PobTools\\update_state.json", v.dump(2));
 }
 
 void AppUpdater::Init(const std::wstring& exeDir)
@@ -1537,7 +1537,7 @@ bool AppUpdater::doUpdateTranslations(std::string* err)
 
 	// ⚠ 快取目錄名用各自的版號。兩線共用一個 "<ver>" 目錄時,一線的
 	// remove_dir_rec 會把另一線正在用的 stage 一起刪掉。
-	std::wstring cacheDir = exeDir_ + L"PobTools\\cache\\app_update\\" + widen(latest_.dataTag);
+	std::wstring cacheDir = user_dir_for(exeDir_) + L"PobTools\\cache\\app_update\\" + widen(latest_.dataTag);
 	std::wstring stage = cacheDir + L"\\trans_stage\\";
 	remove_dir_rec(cacheDir);
 	if (!ExtractZipToDir(buf.data(), buf.size(), stage, err)) return false;
@@ -1642,7 +1642,7 @@ bool AppUpdater::doUpdateApp(std::string* err)
 	if (!downloadAsset(latest_.appUrl, wantSha, wantSize, &buf, err, true)) return false;
 
 	setPhase(AppUpdatePhase::AppStaging, kMsgStaging);
-	std::wstring cacheDir = exeDir_ + L"PobTools\\cache\\app_update\\v" + widen(latest_.appVer);
+	std::wstring cacheDir = user_dir_for(exeDir_) + L"PobTools\\cache\\app_update\\v" + widen(latest_.appVer);
 	std::wstring stage = cacheDir + L"\\app_stage\\";
 	remove_dir_rec(cacheDir);
 	if (!ExtractZipToDir(buf.data(), buf.size(), stage, err)) return false;
@@ -1759,8 +1759,8 @@ void CleanupAppUpdateLeftovers(const std::wstring& exeDir)
 	// previous exe -- five 200 ms retries used to put up to a second in front of
 	// the first frame. A backup that survives is deleted on the next start.
 	delete_old_backups(exeDir, 1);
-	if (dir_exists(exeDir + L"PobTools\\cache\\app_update"))
-		remove_dir_rec(exeDir + L"PobTools\\cache\\app_update");
+	if (dir_exists(user_dir_for(exeDir) + L"PobTools\\cache\\app_update"))
+		remove_dir_rec(user_dir_for(exeDir) + L"PobTools\\cache\\app_update");
 }
 
 int ApplyStagedAppUpdateAndRelaunch(const std::wstring& exeDir, const std::wstring& stageDir,
@@ -1877,7 +1877,7 @@ int ApplyStagedAppUpdateAndRelaunch(const std::wstring& exeDir, const std::wstri
 		{
 			std::string content2;
 			ordered_json v;
-			if (read_file_utf8(exeDir + L"PobTools\\update_state.json", content2)) {
+			if (read_file_utf8(user_dir_for(exeDir) + L"PobTools\\update_state.json", content2)) {
 				try { v = ordered_json::parse(content2); } catch (...) { v = ordered_json(); }
 			}
 			v["appliedApp"] = tag;
@@ -1885,8 +1885,8 @@ int ApplyStagedAppUpdateAndRelaunch(const std::wstring& exeDir, const std::wstri
 			// 拆兩線之後那是錯的:程式版號與 data-<n> 不同號,寫進去只會污染一個
 			// 現在純資訊性的欄位。翻譯資料的真值是 Data\translations_version.json,
 			// 它跟著內容一起被搬,不需要也不該由這裡代寫。
-			CreateDirectoryW((exeDir + L"PobTools").c_str(), nullptr);
-			write_file_atomic(exeDir + L"PobTools\\update_state.json", v.dump(2));
+			CreateDirectoryW((user_dir_for(exeDir) + L"PobTools").c_str(), nullptr);
+			write_file_atomic(user_dir_for(exeDir) + L"PobTools\\update_state.json", v.dump(2));
 		}
 		log_line(exeDir, "app updated to v" + tag);
 
@@ -1931,7 +1931,7 @@ int RunAppUpdateCli(const std::wstring& exeDir, bool checkOnly, bool allowBack)
 	u.loadState();
 	// The CLI has to honour the same opt-out as the UI, or "update from a script"
 	// becomes the one path that still overwrites edited dictionaries.
-	const LauncherConfig cliCfg = LoadLauncherConfig(exeDir + L"pob-zh.ini");
+	const LauncherConfig cliCfg = LoadLauncherConfig(user_dir_for(exeDir) + L"pob-zh.ini");
 	u.SetTranslationUpdates(cliCfg.updateTranslations);
 	// ...and the same channel, or the CLI is the one path that cannot see (or
 	// verify) the beta line.
@@ -2116,7 +2116,7 @@ int RunAppUpdateSelfTest(const std::wstring& exeDir)
 		if (!ok) fails++;
 	};
 
-	std::wstring root = exeDir + L"PobTools\\selftest_appupd";
+	std::wstring root = user_dir_for(exeDir) + L"PobTools\\selftest_appupd";
 	remove_dir_rec(root);
 	SHCreateDirectoryExW(nullptr, root.c_str(), nullptr);
 
@@ -3617,8 +3617,8 @@ int RunAppUpdateSelfTest(const std::wstring& exeDir)
 	remove_dir_rec(root);
 
 	report += fails == 0 ? "RESULT PASS\r\n" : "RESULT FAIL\r\n";
-	CreateDirectoryW((exeDir + L"PobTools").c_str(), nullptr);
-	write_file_bytes(exeDir + L"PobTools\\app_update_selftest.txt", report.data(), report.size());
+	CreateDirectoryW((user_dir_for(exeDir) + L"PobTools").c_str(), nullptr);
+	write_file_bytes(user_dir_for(exeDir) + L"PobTools\\app_update_selftest.txt", report.data(), report.size());
 	printf("%s (report: PobTools\\app_update_selftest.txt)\n",
 	       fails == 0 ? "RESULT PASS" : "RESULT FAIL");
 	return fails == 0 ? 0 : 1;

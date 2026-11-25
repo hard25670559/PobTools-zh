@@ -8,6 +8,7 @@
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
+#include <filesystem>
 #include <windows.h>
 #include <shellapi.h>
 #else
@@ -134,7 +135,7 @@ static std::wstring resolve_launch_lua_legacy(const std::wstring& dir)
 // launcher sets them explicitly and the --engine child inherits).
 static void apply_locale_env(const std::wstring& dir)
 {
-	std::wstring ini = dir + L"pob-zh.ini";
+	std::wstring ini = user_dir_for(dir) + L"pob-zh.ini";
 
 	auto ensure = [&](const wchar_t* var, const wchar_t* iniKey, const wchar_t* fallback) {
 		if (GetEnvironmentVariableW(var, nullptr, 0) > 0) return; // already set, respect it
@@ -181,8 +182,21 @@ static void apply_locale_env(const std::wstring& dir)
 		GetEnvironmentVariableW(L"POB_GAME", g, 64);
 		const DictSlot slot = (wcscmp(g, L"poe2") == 0) ? DictSlot::Poe2 : DictSlot::Poe1;
 		DictDirInfo dd = ResolveDictDir(dir, slot, LoadLauncherConfig(ini).dataDir[(int)slot]);
-		set_env_both(L"POB_ZH_DATADIR",
-		             dd.status == DataDirStatus::External ? dd.root.c_str() : L"");
+		std::wstring dictRoot = dd.status == DataDirStatus::External ? dd.root : std::wstring();
+#if defined(__APPLE__)
+		// The built-in dictionaries are no longer beside the executable.
+		//
+		// The engine falls back to <exe>\Data\<game>, which on macOS is an
+		// app bundle holding only code -- POB came up in English. Pointed at
+		// the user directory, where the data actually lives (win_util.h).
+		if (dictRoot.empty()) {
+			std::wstring builtin = BuiltinDictDir(dir, slot);
+			while (!builtin.empty() && (builtin.back() == L'\\' || builtin.back() == L'/'))
+				builtin.pop_back();
+			if (dir_exists(builtin)) dictRoot = builtin;
+		}
+#endif
+		set_env_both(L"POB_ZH_DATADIR", dictRoot.c_str());
 	}
 }
 
@@ -285,7 +299,7 @@ static int open_pob_link(const std::wstring& dir, const std::wstring& rawUri, bo
 			L"PobTools", MB_ICONERROR | MB_OK);
 		return 1;
 	}
-	const std::wstring ini = dir + L"pob-zh.ini";
+	const std::wstring ini = user_dir_for(dir) + L"pob-zh.ini";
 	const LauncherConfig cfg = LoadLauncherConfig(ini);
 	const InstallInfo installs = DetectInstalls(dir);
 	const bool poe2 = game == L"poe2";
@@ -359,7 +373,14 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
 	SetDllDirectoryW(engineDir.c_str());
 
 	// Bundled CJK fonts live in dir\Fonts, so the external POB folder stays pristine.
-	set_env_both(L"POB_ZH_FONTDIR", dir.c_str());
+	// Where Fonts/ actually is: beside the executable on Windows, in the user
+	// directory on macOS (win_util.h, data_dir). Pointed at the bundle, the
+	// engine finds no font and draws every character as [U+XXXX].
+	set_env_both(L"POB_ZH_FONTDIR", data_dir_for(dir).c_str());
+#if defined(__APPLE__)
+	// Same as pob_launch: a writable place for the engine's own logs.
+	set_env_both(L"POB_ZH_USERDIR", user_dir_for(dir).c_str());
+#endif
 
 	int argc = 0;
 	LPWSTR* argvW = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -372,9 +393,65 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
 
 	// Proxy for every WinHTTP session, set before any dispatch (tool children re-enter here too).
 	// Empty follows the system proxy.
-	HttpSetManualProxy(LoadLauncherConfig(dir + L"pob-zh.ini").proxy);
+	HttpSetManualProxy(LoadLauncherConfig(user_dir_for(dir) + L"pob-zh.ini").proxy);
 	// The token is watched, not read once: a tool child must pick up the settings page saving/clearing it.
 	GitHubToken::Init(dir);
+
+#if defined(__APPLE__)
+	// The user directory, before anything reads or writes a setting.
+	//
+	// It does not exist on a fresh install: the app arrives as a signed bundle
+	// with nothing of the user's in it (win_util.h, user_dir).
+	{
+		const std::wstring ud = user_dir();
+		std::string narrow_ud(ud.begin(), ud.end());
+		std::error_code ec;
+		std::filesystem::create_directories(narrow_ud, ec);
+
+		// The program's data, seeded from the bundle.
+		//
+		// The bundle is read-only once signed, and translation data is updated
+		// between app releases, so the copy that gets written to lives here.
+		// Re-seeded when the bundle's copy is newer -- that is a new app
+		// version carrying new dictionaries, which must win over whatever an
+		// in-between data update left behind.
+		{
+			const std::wstring bd = bundled_data_dir();
+			std::string narrow_bd(bd.begin(), bd.end());
+			for (const char* folder : { "Data", "Fonts", "Filters" }) {
+				const std::filesystem::path from = std::filesystem::path(narrow_bd) / folder;
+				const std::filesystem::path to = std::filesystem::path(narrow_ud) / folder;
+				if (!std::filesystem::exists(from, ec)) continue;
+
+				bool seed = !std::filesystem::exists(to, ec);
+				if (!seed) {
+					const auto a = std::filesystem::last_write_time(from, ec);
+					const auto b = std::filesystem::last_write_time(to, ec);
+					seed = !ec && a > b;
+				}
+				if (seed) {
+					std::filesystem::copy(from, to,
+					                      std::filesystem::copy_options::recursive |
+					                          std::filesystem::copy_options::overwrite_existing,
+					                      ec);
+				}
+			}
+		}
+
+		// Settings an earlier version left inside the app bundle. Copied once,
+		// so an update that replaces the bundle does not lose them; the
+		// originals are left where they are, harmless and ignored from now on.
+		const std::wstring ed = exe_dir();
+		std::string narrow_ed(ed.begin(), ed.end());
+		for (const char* name : { "pob-zh.ini", "imgui.ini" }) {
+			const std::filesystem::path from = std::filesystem::path(narrow_ed) / name;
+			const std::filesystem::path to = std::filesystem::path(narrow_ud) / name;
+			if (std::filesystem::exists(from, ec) && !std::filesystem::exists(to, ec)) {
+				std::filesystem::copy_file(from, to, ec);
+			}
+		}
+	}
+#endif
 
 	// Startup timeline for the launcher only (the engine child writes its own inside SimpleGraphic.dll).
 	if (arg1.empty()) {
@@ -566,7 +643,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
 	if (arg1 == L"--pob-download-probe") {
 		std::string err;
 		const bool ok = DownloadAndInstallPob(dir, arg2 == L"poe2", nullptr, nullptr, &err);
-		write_file_utf8(dir + L"PobTools\\pob_download_probe.txt", ok ? "OK\n" : "FAIL " + err + "\n");
+		write_file_utf8(user_dir_for(dir) + L"PobTools\\pob_download_probe.txt", ok ? "OK\n" : "FAIL " + err + "\n");
 		return ok ? 0 : 1;
 	}
 
@@ -580,8 +657,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
 		std::string rep = std::string(theme ? "PASS" : "FAIL") + " theme: style, density swap, design tokens\n" +
 		                  (widgets ? "PASS" : "FAIL") + " widgets: design px -> screen px, control sizes\n" +
 		                  ((theme && widgets) ? "RESULT PASS\n" : "RESULT FAIL\n");
-		CreateDirectoryW((dir + L"PobTools").c_str(), nullptr);
-		HANDLE h = CreateFileW((dir + L"PobTools\\ui_theme_selftest.txt").c_str(), GENERIC_WRITE, 0, nullptr,
+		CreateDirectoryW((user_dir_for(dir) + L"PobTools").c_str(), nullptr);
+		HANDLE h = CreateFileW((user_dir_for(dir) + L"PobTools\\ui_theme_selftest.txt").c_str(), GENERIC_WRITE, 0, nullptr,
 		                       CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
 		if (h != INVALID_HANDLE_VALUE) {
 			DWORD w = 0;
@@ -694,13 +771,13 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
 	// Open the atlas planner directly (shortcut-friendly; also used by the
 	// launcher to run tools as child processes so its own window stays open).
 	if (arg1 == L"--atlas") {
-		ShowAtlasPlanner(dir, LoadLauncherConfig(dir + L"pob-zh.ini").locale);
+		ShowAtlasPlanner(dir, LoadLauncherConfig(user_dir_for(dir) + L"pob-zh.ini").locale);
 		return 0;
 	}
 	// Open the translation editor directly (shortcut-friendly); the launcher still opens it IN-PROCESS
 	// so its own labels reload on return. Optional arg2 picks the dictionary set ("poe1" / "poe2" / "launcher").
 	if (arg1 == L"--translation-editor") {
-		LauncherConfig c = LoadLauncherConfig(dir + L"pob-zh.ini");
+		LauncherConfig c = LoadLauncherConfig(user_dir_for(dir) + L"pob-zh.ini");
 		ShowEditor(dir, arg2.empty() ? c.game : arg2, c.locale);
 		return 0;
 	}
@@ -777,22 +854,22 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
 		return RunTranslateProbe(arg2, arg3);
 	}
 	if (arg1 == L"--filter-editor") {
-		LauncherConfig c = LoadLauncherConfig(dir + L"pob-zh.ini");
+		LauncherConfig c = LoadLauncherConfig(user_dir_for(dir) + L"pob-zh.ini");
 		ShowFilterEditor(dir, c.game, c.locale);
 		return 0;
 	}
 	if (arg1 == L"--timeless-jewel") {
-		ShowTimelessJewel(dir, LoadLauncherConfig(dir + L"pob-zh.ini").locale);
+		ShowTimelessJewel(dir, LoadLauncherConfig(user_dir_for(dir) + L"pob-zh.ini").locale);
 		return 0;
 	}
 	if (arg1 == L"--boss-profit") {
-		LauncherConfig c = LoadLauncherConfig(dir + L"pob-zh.ini");
+		LauncherConfig c = LoadLauncherConfig(user_dir_for(dir) + L"pob-zh.ini");
 		ShowBossProfitTool(dir, c.game, c.locale);
 		return 0;
 	}
 	// 倉庫收益統計（測試性質：POESESSID 通道，見 warehouse_provider.h）
 	if (arg1 == L"--warehouse") {
-		LauncherConfig c = LoadLauncherConfig(dir + L"pob-zh.ini");
+		LauncherConfig c = LoadLauncherConfig(user_dir_for(dir) + L"pob-zh.ini");
 		ShowWarehouseTool(dir, c.game, c.locale);
 		return 0;
 	}
@@ -800,13 +877,13 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
 	// The new interface: a WebView2 window driving a headless POB child. Reads
 	// pob-zh.ini like the other tools; an explicit game wins over the ini.
 	if (arg1 == L"--modern-ui") { // --modern-ui [poe1|poe2] [build.xml]
-		LauncherConfig c = LoadLauncherConfig(dir + L"pob-zh.ini");
+		LauncherConfig c = LoadLauncherConfig(user_dir_for(dir) + L"pob-zh.ini");
 		return ShowModernUi(dir, arg2.empty() ? c.game : arg2, c.locale, c, arg3);
 	}
 	// The same, forced into the system browser (what Wine / CrossOver get; on
 	// Windows a way to test it).
 	if (arg1 == L"--modern-ui-browser") { // --modern-ui-browser [poe1|poe2] [build.xml]
-		LauncherConfig c = LoadLauncherConfig(dir + L"pob-zh.ini");
+		LauncherConfig c = LoadLauncherConfig(user_dir_for(dir) + L"pob-zh.ini");
 		return ShowModernUiInBrowser(dir, arg2.empty() ? c.game : arg2, c.locale, c, arg3);
 	}
 
@@ -869,7 +946,15 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
 		//
 		// Done here rather than in the bundle's Info.plist because the same
 		// executable is both programs: the launcher must keep its tile.
-		pob_mac::MakeAccessoryApp();
+		//
+		// Only while the launcher is there to hold one. With the launcher
+		// closing, POB is the only program left and giving its tile up leaves
+		// the Dock showing nothing at all -- the flag the launcher sets says
+		// which case this is (sys_video.cpp reads it again after glfwInit,
+		// which resets the policy).
+		if (const char* stays = ::getenv("POB_ZH_LAUNCHER_STAYS")) {
+			if (stays[0] == '1') pob_mac::MakeAccessoryApp();
+		}
 #endif
 		// Publish "a POB is running against this install" for as long as this
 		// process lives, so a launcher (possibly a different one) knows not to
@@ -940,7 +1025,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
 
 	// Launcher mode. A pending relaunch marker (left by the engine when POB
 	// self-updated) bypasses the UI once and reopens the updated POB directly.
-	std::wstring ini = dir + L"pob-zh.ini";
+	std::wstring ini = user_dir_for(dir) + L"pob-zh.ini";
 	PobLaunch::RelaunchMarker pending = take_relaunch_marker(dir);
 	std::wstring pendingLua = pending.launchLua;
 	if (pending.modern && !launch_lua_from(pendingLua).empty()) {
@@ -1052,15 +1137,13 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
 
 		apply_engine_env(cfg, dir, cfg.game);
 #if defined(__APPLE__)
-		// Whether the launcher is still going to be there while POB runs.
+		// POB takes a Dock tile of its own.
 		//
-		// It decides which of the two owns the Dock tile. With the launcher
-		// staying (it waits for POB, or keeps its window), the tile is the
-		// launcher's and POB gives up its own -- otherwise the same icon sits
-		// there twice. With the launcher closing, POB has to keep its tile, or
-		// the Dock would show nothing at all for a program that is running.
-		::setenv("POB_ZH_LAUNCHER_STAYS",
-		         cfg.exitMode == LaunchExitMode::CloseLauncher ? "0" : "1", 1);
+		// Only reached when POB could not be opened inside this process and is
+		// started as a program of its own instead (launcher_ui.cpp). The
+		// launcher's window is closed while it runs, so its tile would lead
+		// nowhere; POB's is the only one worth having.
+		::setenv("POB_ZH_LAUNCHER_STAYS", "0", 1);
 #endif
 		// Held for the whole run: the engine reads Data\*.json on a background thread, and the updater
 		// would otherwise write a new pack straight over them.

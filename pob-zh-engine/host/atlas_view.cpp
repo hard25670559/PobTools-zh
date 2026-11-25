@@ -1,6 +1,7 @@
 // must precede every imgui.h include (atlas_view.h pulls it in)
 #define IMGUI_DEFINE_MATH_OPERATORS
 
+#include "win_util.h"
 #include "atlas_view.h"
 #include "atlas_i18n.h"
 #include "atlas_stat_agg.h" // StripStatMarkup for tooltip stat lines
@@ -48,7 +49,7 @@ bool AtlasView::LoadTextures(const std::wstring& exeDir, const AtlasTreeData& d,
 	focusAnim_ = false;
 	focusTimer_ = 0.0f;
 	// Sprite sheets live beside the tree data (versioned Data/atlas_versions/<tag>/atlas/; legacy Data/atlas/).
-	std::wstring base = d.DataDir().empty() ? (exeDir + L"Data\\") : d.DataDir();
+	std::wstring base = d.DataDir().empty() ? (data_dir_for(exeDir) + L"Data\\") : d.DataDir();
 	tex_.assign(d.sheets.size(), 0);
 	for (size_t i = 0; i < d.sheets.size(); i++) {
 		std::wstring rel = EdWiden(d.sheets[i].file);

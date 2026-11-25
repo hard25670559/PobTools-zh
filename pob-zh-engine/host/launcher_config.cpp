@@ -496,7 +496,7 @@ static int count_json(const std::wstring& dir)
 
 std::wstring BuiltinDictDir(const std::wstring& exeDir, DictSlot slot)
 {
-	return native_seps(exeDir + L"Data\\" + DictSlotFolder(slot) + L"\\");
+	return native_seps(data_dir_for(exeDir) + L"Data\\" + DictSlotFolder(slot) + L"\\");
 }
 
 // Every <locale>\meta.json directly under `dir`, with its *.json count.
@@ -785,7 +785,7 @@ std::vector<std::wstring> ListAvailableFonts(const std::wstring& exeDir)
 {
 	std::vector<std::wstring> out;
 	WIN32_FIND_DATAW fd{};
-	HANDLE h = FindFirstFileW((exeDir + L"Fonts\\*.ttf").c_str(), &fd);
+	HANDLE h = FindFirstFileW((data_dir_for(exeDir) + L"Fonts\\*.ttf").c_str(), &fd);
 	if (h != INVALID_HANDLE_VALUE) {
 		do {
 			if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
@@ -798,8 +798,8 @@ std::vector<std::wstring> ListAvailableFonts(const std::wstring& exeDir)
 
 std::wstring BackgroundsDir(const std::wstring& exeDir)
 {
-	const std::wstring dir = exeDir + L"PobTools\\Backgrounds\\";
-	CreateDirectoryW((exeDir + L"PobTools").c_str(), nullptr);
+	const std::wstring dir = user_dir_for(exeDir) + L"PobTools\\Backgrounds\\";
+	CreateDirectoryW((user_dir_for(exeDir) + L"PobTools").c_str(), nullptr);
 	CreateDirectoryW(dir.c_str(), nullptr);
 	return dir;
 }
@@ -832,7 +832,7 @@ std::wstring ResolveBackgroundPath(const std::wstring& exeDir, const std::wstrin
 
 std::wstring ResolveFontPath(const std::wstring& exeDir, const std::wstring& fontFile)
 {
-	const std::wstring dir = exeDir + L"Fonts\\";
+	const std::wstring dir = data_dir_for(exeDir) + L"Fonts\\";
 	auto tryName = [&](const std::wstring& f) -> std::wstring {
 		return (!f.empty() && file_exists(dir + f)) ? dir + f : std::wstring();
 	};
@@ -852,7 +852,7 @@ std::vector<std::wstring> FallbackFontPaths(const std::wstring& exeDir, const st
 	const std::wstring primary = ResolveFontPath(exeDir, fontFile);
 	std::vector<std::wstring> out;
 	for (const std::wstring& f : ListAvailableFonts(exeDir)) {
-		const std::wstring p = exeDir + L"Fonts\\" + f;
+		const std::wstring p = data_dir_for(exeDir) + L"Fonts\\" + f;
 		if (_wcsicmp(p.c_str(), primary.c_str()) != 0) out.push_back(p);
 	}
 	return out;
@@ -861,7 +861,7 @@ std::vector<std::wstring> FallbackFontPaths(const std::wstring& exeDir, const st
 std::wstring ResolveConfiguredFontPath(const std::wstring& exeDir)
 {
 	wchar_t fbuf[128];
-	read_ini_str(exeDir + L"pob-zh.ini", L"Font", kDefaultFontFile, fbuf, 128);
+	read_ini_str(user_dir_for(exeDir) + L"pob-zh.ini", L"Font", kDefaultFontFile, fbuf, 128);
 	std::wstring f = fbuf;
 	if (f.empty()) f = kDefaultFontFile;
 	return ResolveFontPath(exeDir, f);
@@ -962,9 +962,48 @@ bool PobDirIsPoe2(const std::wstring& dir)
 	return name_looks_poe2(slash == std::wstring::npos ? d : d.substr(slash + 1));
 }
 
+#if defined(__APPLE__)
+static InstallInfo DetectInstallsIn(const std::wstring& exeDir);
+#endif
+
 InstallInfo DetectInstalls(const std::wstring& exeDir)
 {
 	InstallInfo info;
+
+#if defined(__APPLE__)
+	// The user directory first, where POB is installed from now on
+	// (win_util.h, user_dir). An install already sitting inside the app bundle
+	// still counts -- it is where every earlier version put it -- so nobody
+	// loses the gigabyte they already downloaded; the search below finds it.
+	{
+		const std::wstring ud = user_dir_for(exeDir);
+		if (ud != exeDir) {
+			InstallInfo fromUser = DetectInstallsIn(ud);
+			info.poe1Dir = fromUser.poe1Dir;
+			info.poe2Dir = fromUser.poe2Dir;
+		}
+	}
+	if (info.poe1Dir.empty() || info.poe2Dir.empty()) {
+		InstallInfo beside = DetectInstallsIn(exeDir);
+		if (info.poe1Dir.empty()) info.poe1Dir = beside.poe1Dir;
+		if (info.poe2Dir.empty()) info.poe2Dir = beside.poe2Dir;
+	}
+	if (!info.poe1Dir.empty()) {
+		info.poe1Lua = info.poe1Dir + kPathSep + L"Launch.lua";
+		info.poe1Version = read_pob_version(info.poe1Dir);
+	}
+	if (!info.poe2Dir.empty()) {
+		info.poe2Lua = info.poe2Dir + kPathSep + L"Launch.lua";
+		info.poe2Version = read_pob_version(info.poe2Dir);
+	}
+	return info;
+}
+
+// One directory's worth: the search that DetectInstalls has always done.
+static InstallInfo DetectInstallsIn(const std::wstring& exeDir)
+{
+	InstallInfo info;
+#endif
 
 	// 1) canonical names first, unless the manifest says the folder is the other game.
 	static const wchar_t* kPoe1Names[] = { L"PathOfBuildingCommunity", L"PathOfBuildingCommunity-Portable" };
@@ -1232,8 +1271,8 @@ int RunDetectInstallsSelfTest(const std::wstring& exeDir)
 	}
 
 	report += failures ? "RESULT FAIL\n" : "RESULT PASS\n";
-	CreateDirectoryW((exeDir + L"PobTools").c_str(), nullptr);
-	HANDLE h = CreateFileW((exeDir + L"PobTools\\detect_selftest.txt").c_str(), GENERIC_WRITE, 0,
+	CreateDirectoryW((user_dir_for(exeDir) + L"PobTools").c_str(), nullptr);
+	HANDLE h = CreateFileW((user_dir_for(exeDir) + L"PobTools\\detect_selftest.txt").c_str(), GENERIC_WRITE, 0,
 	                       nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
 	if (h != INVALID_HANDLE_VALUE) {
 		DWORD w = 0;
@@ -1913,8 +1952,8 @@ int RunLauncherConfigSelfTest(const std::wstring& exeDir)
 	}
 
 	report += failures ? "RESULT FAIL\n" : "RESULT PASS\n";
-	CreateDirectoryW((exeDir + L"PobTools").c_str(), nullptr);
-	HANDLE h = CreateFileW((exeDir + L"PobTools\\launcher_config_selftest.txt").c_str(),
+	CreateDirectoryW((user_dir_for(exeDir) + L"PobTools").c_str(), nullptr);
+	HANDLE h = CreateFileW((user_dir_for(exeDir) + L"PobTools\\launcher_config_selftest.txt").c_str(),
 	                       GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
 	if (h != INVALID_HANDLE_VALUE) {
 		DWORD w = 0;

@@ -319,14 +319,14 @@ struct Window {
 		// Four folders, four origins. ui.json (data) and @font-face (fonts) are CORS requests from the app origin, so
 		// those two must ALLOW (DENY_CORS silently left the page in English with the system font). The POB install is
 		// only drawn via <img>/drawImage, which CORS does not gate, so it stays the strictest.
-		wv3->SetVirtualHostNameToFolderMapping(kHostApp, (exeDir + L"ui").c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
+		wv3->SetVirtualHostNameToFolderMapping(kHostApp, (data_dir_for(exeDir) + L"ui").c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
 		if (!pobDir.empty())
 			wv3->SetVirtualHostNameToFolderMapping(kHostPob, pobDir.c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS);
-		wv3->SetVirtualHostNameToFolderMapping(kHostData, (exeDir + L"Data").c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
-		wv3->SetVirtualHostNameToFolderMapping(kHostFonts, (exeDir + L"Fonts").c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
-		CreateDirectoryW((exeDir + L"PobTools").c_str(), nullptr);
-		CreateDirectoryW((exeDir + L"PobTools\\cache").c_str(), nullptr);
-		wv3->SetVirtualHostNameToFolderMapping(kHostCache, (exeDir + L"PobTools\\cache").c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
+		wv3->SetVirtualHostNameToFolderMapping(kHostData, (data_dir_for(exeDir) + L"Data").c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
+		wv3->SetVirtualHostNameToFolderMapping(kHostFonts, (data_dir_for(exeDir) + L"Fonts").c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
+		CreateDirectoryW((user_dir_for(exeDir) + L"PobTools").c_str(), nullptr);
+		CreateDirectoryW((user_dir_for(exeDir) + L"PobTools\\cache").c_str(), nullptr);
+		wv3->SetVirtualHostNameToFolderMapping(kHostCache, (user_dir_for(exeDir) + L"PobTools\\cache").c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
 		wv3->SetVirtualHostNameToFolderMapping(kHostBg, BackgroundsDir(exeDir).c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
 
 		webview->AddScriptToExecuteOnDocumentCreated(BootScript().c_str(), nullptr);
@@ -385,11 +385,11 @@ struct Window {
 		RECT rc{};
 		if (!GetWindowRect(hwnd, &rc) || IsIconic(hwnd) || IsZoomed(hwnd)) return;
 		// Re-read: the launcher may have written other keys since we started.
-		LauncherConfig fresh = LoadLauncherConfig(exeDir + L"pob-zh.ini");
+		LauncherConfig fresh = LoadLauncherConfig(user_dir_for(exeDir) + L"pob-zh.ini");
 		fresh.modernWinW = ClampWindowDim(rc.right - rc.left);
 		fresh.modernWinH = ClampWindowDim(rc.bottom - rc.top);
 		if (fresh.modernWinW == 0 || fresh.modernWinH == 0) return;
-		SaveLauncherConfig(exeDir + L"pob-zh.ini", fresh);
+		SaveLauncherConfig(user_dir_for(exeDir) + L"pob-zh.ini", fresh);
 	}
 };
 
@@ -577,8 +577,8 @@ int ShowModernUi(const std::wstring& exeDir, const std::wstring& game,
 	// anything it says before the page is up waits in the backlog.
 	w.StartChild();
 
-	const std::wstring userData = exeDir + L"PobTools\\webview2";
-	CreateDirectoryW((exeDir + L"PobTools").c_str(), nullptr);
+	const std::wstring userData = user_dir_for(exeDir) + L"PobTools\\webview2";
+	CreateDirectoryW((user_dir_for(exeDir) + L"PobTools").c_str(), nullptr);
 	CreateDirectoryW(userData.c_str(), nullptr);
 	HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(nullptr, userData.c_str(), nullptr,
 		Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(

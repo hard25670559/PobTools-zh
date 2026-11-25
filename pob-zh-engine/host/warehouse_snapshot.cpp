@@ -1,3 +1,4 @@
+#include "win_util.h"
 #include "warehouse_snapshot.h"
 
 #if defined(_WIN32)
@@ -319,7 +320,7 @@ std::wstring WarehouseHistory::PathOf(const std::wstring& exeDir, const std::str
 	// Only ASCII reaches the name (GameId + LeagueFileStem), so a byte-wise
 	// widen is exact.
 	const std::string stem = std::string(GameId(game)) + "_" + LeagueFileStem(league);
-	return exeDir + L"PobTools\\warehouse\\" + std::wstring(stem.begin(), stem.end()) + L".json";
+	return user_dir_for(exeDir) + L"PobTools\\warehouse\\" + std::wstring(stem.begin(), stem.end()) + L".json";
 }
 
 bool WarehouseHistory::Load(const std::wstring& exeDir, const std::string& game,
@@ -331,8 +332,8 @@ bool WarehouseHistory::Load(const std::wstring& exeDir, const std::string& game,
 bool WarehouseHistory::Save(const std::wstring& exeDir, const std::string& game,
                             const std::string& league) const
 {
-	CreateDirectoryW((exeDir + L"PobTools").c_str(), nullptr);
-	CreateDirectoryW((exeDir + L"PobTools\\warehouse").c_str(), nullptr);
+	CreateDirectoryW((user_dir_for(exeDir) + L"PobTools").c_str(), nullptr);
+	CreateDirectoryW((user_dir_for(exeDir) + L"PobTools\\warehouse").c_str(), nullptr);
 	return WriteAtomic(PathOf(exeDir, game, league), Serialize(*this));
 }
 

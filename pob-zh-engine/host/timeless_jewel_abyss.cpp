@@ -1,3 +1,4 @@
+#include "win_util.h"
 #include "timeless_jewel_abyss.h"
 
 #include <algorithm>
@@ -486,7 +487,7 @@ int RunAbyssCli(const std::wstring& exeDir, int jewelType, int socketId, int see
 
 	TJDataset ds;
 	std::string err;
-	if (!ds.Load(exeDir + L"Data\\timeless_jewels.json", &err)) {
+	if (!ds.Load(data_dir_for(exeDir) + L"Data\\timeless_jewels.json", &err)) {
 		emit("load dataset: " + err);
 		return finish(1);
 	}
@@ -624,7 +625,7 @@ int RunAbyssSelfTest(const std::wstring& exeDir)
 	abyss_console();
 	TJDataset ds;
 	std::string err;
-	if (!ds.Load(exeDir + L"Data\\timeless_jewels.json", &err)) {
+	if (!ds.Load(data_dir_for(exeDir) + L"Data\\timeless_jewels.json", &err)) {
 		printf("FAIL load dataset: %s\n", err.c_str());
 		return 1;
 	}

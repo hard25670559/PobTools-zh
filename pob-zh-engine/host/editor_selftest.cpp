@@ -403,7 +403,7 @@ static int run_for_game(const std::wstring& exeDir, const std::wstring& slotRoot
 		std::vector<std::string> l2 = ListLocales(BuiltinDictDir(exeDir, DictSlot::Poe2));
 		bool has1 = std::find(l1.begin(), l1.end(), std::string("zh-rTW")) != l1.end();
 		bool has2 = std::find(l2.begin(), l2.end(), std::string("zh-rTW")) != l2.end();
-		std::vector<std::string> lx = ListLocales(exeDir + L"Data\\poe9\\");
+		std::vector<std::string> lx = ListLocales(data_dir_for(exeDir) + L"Data\\poe9\\");
 		check(has1 && has2, "T30 ListLocales finds zh-rTW for both games");
 		check(!lx.empty(), "T31 ListLocales falls back instead of returning nothing");
 

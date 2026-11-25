@@ -252,7 +252,13 @@ bool DownloadAndInstallPob(const std::wstring& exeDir, bool poe2, const std::ato
                            std::string* err)
 {
 	auto fail = [&](const std::string& m) { if (err) *err = m; return false; };
-	if (path_exists(with_slash(exeDir) + PobPortableDirName(poe2))) return fail(u8"安裝資料夾已存在");
+
+	// POB goes to the user directory, not beside the program: on macOS the app
+	// bundle is signed and replaced wholesale by an update, and a gigabyte of
+	// POB inside it would be thrown away with it (win_util.h, user_dir).
+	const std::wstring target = user_dir_for(exeDir);
+
+	if (path_exists(with_slash(target) + PobPortableDirName(poe2))) return fail(u8"安裝資料夾已存在");
 
 	std::string body;
 	{
@@ -266,7 +272,7 @@ bool DownloadAndInstallPob(const std::wstring& exeDir, bool poe2, const std::ato
 
 	// zip + extracted copy, with headroom
 	ULARGE_INTEGER freeBytes{};
-	if (rel.size && GetDiskFreeSpaceExW(with_slash(exeDir).c_str(), &freeBytes, nullptr, nullptr) &&
+	if (rel.size && GetDiskFreeSpaceExW(with_slash(target).c_str(), &freeBytes, nullptr, nullptr) &&
 	    freeBytes.QuadPart < rel.size * 3)
 		return fail(u8"磁碟空間不足，需要約 " + std::to_string(rel.size * 3 / (1024 * 1024)) + " MB");
 
@@ -283,5 +289,5 @@ bool DownloadAndInstallPob(const std::wstring& exeDir, bool poe2, const std::ato
 		if (!c.Get(widen(rel.url.substr(slash)), buf, err, cancel, prog)) return false;
 	}
 	if (cancel && cancel->load()) return fail(u8"已取消");
-	return InstallPobZip(buf.data(), buf.size(), rel.sha256, exeDir, poe2, err);
+	return InstallPobZip(buf.data(), buf.size(), rel.sha256, target, poe2, err);
 }

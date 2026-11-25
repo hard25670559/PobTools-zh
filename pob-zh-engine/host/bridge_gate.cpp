@@ -23,7 +23,7 @@ static std::wstring lower(std::wstring s)
 
 std::wstring GatePath(const std::wstring& exeDir)
 {
-	return exeDir + L"PobTools\\bridge_gate.json";
+	return user_dir_for(exeDir) + L"PobTools\\bridge_gate.json";
 }
 
 Verdict Parse(const std::string& text)
@@ -50,7 +50,7 @@ Verdict Parse(const std::string& text)
 
 bool Write(const std::wstring& exeDir, const Verdict& v)
 {
-	CreateDirectoryW((exeDir + L"PobTools").c_str(), nullptr);
+	CreateDirectoryW((user_dir_for(exeDir) + L"PobTools").c_str(), nullptr);
 	std::string stamp = v.checkedAtUtc;
 	if (stamp.empty()) {
 		time_t now = time(nullptr);
@@ -95,7 +95,7 @@ Verdict Read(const std::wstring& exeDir)
 
 std::string BridgeFingerprint(const std::wstring& exeDir)
 {
-	HANDLE h = CreateFileW((exeDir + L"Data\\bridge\\bridge.lua").c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
+	HANDLE h = CreateFileW((data_dir_for(exeDir) + L"Data\\bridge\\bridge.lua").c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
 	if (h == INVALID_HANDLE_VALUE) return {};
 	unsigned long long hash = 1469598103934665603ULL;
 	unsigned char buf[16384];

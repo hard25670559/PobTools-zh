@@ -741,7 +741,7 @@ int RunHeadlessSelfTest(const std::wstring& exeDir, const std::wstring& pobDirOv
 				{
 					json idTbl;
 					{
-						const std::wstring p = exeDir + L"Data\\poe1\\zh-rTW\\ascendancy_by_id.json";
+						const std::wstring p = data_dir_for(exeDir) + L"Data\\poe1\\zh-rTW\\ascendancy_by_id.json";
 						HANDLE h = CreateFileW(p.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
 						if (h != INVALID_HANDLE_VALUE) {
 							std::string body;
@@ -2583,7 +2583,7 @@ int RunHeadlessSelfTest(const std::wstring& exeDir, const std::wstring& pobDirOv
 		// a bridge whose probe no longer matches POB: the gate must say so
 		// (a POB update that renames a function: the window falls back to classic and the launcher greys its button)
 		{
-			std::wstring bridgeSrc = opt.bridgeLua.empty() ? exeDir + L"Data\\bridge\\bridge.lua" : opt.bridgeLua;
+			std::wstring bridgeSrc = opt.bridgeLua.empty() ? data_dir_for(exeDir) + L"Data\\bridge\\bridge.lua" : opt.bridgeLua;
 			std::string src = ReadFileA(bridgeSrc);
 			const std::string needle = "type(launch.OnFrame) == \"function\"";
 			size_t at = src.find(needle);
@@ -3300,7 +3300,7 @@ int RunHeadlessSelfTestPoe2(const std::wstring& exeDir, const std::wstring& pobD
 			SetEnvironmentVariableW(L"POB_ZH_NO_BROWSER", L"1");
 			const std::wstring urlFile = exeDir + L"PobTools\\modern_ui_url_poe2.txt";
 			DeleteFileW(urlFile.c_str());
-			LauncherConfig bcfg = LoadLauncherConfig(exeDir + L"pob-zh.ini");
+			LauncherConfig bcfg = LoadLauncherConfig(user_dir_for(exeDir) + L"pob-zh.ini");
 			bcfg.uiMode = 2; // 固定啟動主題為 2,不看開發機的 ini,才能驗「ini 為 0 時維持啟動主題」
 			std::atomic<int> brc{ -1000 };
 			std::thread server([&]() { brc = ShowModernUiInBrowser(exeDir, L"poe2", L"zh-rTW", bcfg, L"", sandbox); });
@@ -3355,7 +3355,7 @@ int RunHeadlessSelfTestPoe2(const std::wstring& exeDir, const std::wstring& pobD
 			      page == 200 && body.find("window.pobtools") != std::string::npos && body.find("\"browser\":true") != std::string::npos,
 			      std::to_string(page));
 			// 工作階段開著時使用者改主題再按啟動會重用同一個工作階段,首頁必須依請求當下 ini 的 UiMode 回對應主題
-			const std::wstring uiIni = exeDir + L"pob-zh.ini";
+			const std::wstring uiIni = user_dir_for(exeDir) + L"pob-zh.ini";
 			wchar_t uiModeOrig[16];
 			GetPrivateProfileStringW(L"PobTools", L"UiMode", L"\x01", uiModeOrig, 16, uiIni.c_str());
 			const bool uiModeHadKey = wcscmp(uiModeOrig, L"\x01") != 0;

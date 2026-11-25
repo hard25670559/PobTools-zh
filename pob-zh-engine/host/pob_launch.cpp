@@ -1,3 +1,4 @@
+#include "launcher_config.h"
 #include "pob_launch.h"
 #include "bridge_gate.h"
 #include "pob_protocol.h"
@@ -253,7 +254,28 @@ void SetEngineEnv(const std::wstring& game, const std::wstring& locale,
 	set_env_both(L"POB_ZH_FONTFILE", fontFile.c_str()); // r_font.cpp reads this
 	// Always written, empty included: this process is long-lived in KeepOpen mode,
 	// so clearing a setting must clear the variable, not leave the last launch's value.
-	set_env_both(L"POB_ZH_DATADIR", dataDir.c_str());
+	{
+		std::wstring dictRoot = dataDir;
+#if defined(__APPLE__)
+		// Empty means "use the built-in dictionaries", which the engine looks
+		// for beside the executable. On macOS that is a bundle holding only
+		// code, so the user directory is named instead (host_main.cpp says
+		// the same for the engine started directly).
+		if (dictRoot.empty()) {
+			const DictSlot slot = (game == L"poe2") ? DictSlot::Poe2 : DictSlot::Poe1;
+			std::wstring builtin = BuiltinDictDir(exe_dir(), slot);
+			while (!builtin.empty() && (builtin.back() == L'\\' || builtin.back() == L'/'))
+				builtin.pop_back();
+			if (dir_exists(builtin)) dictRoot = builtin;
+		}
+#endif
+		set_env_both(L"POB_ZH_DATADIR", dictRoot.c_str());
+	}
+#if defined(__APPLE__)
+	// Where the engine may write: the app bundle is signed and one byte
+	// written into it invalidates the signature (translation_manager.cpp).
+	set_env_both(L"POB_ZH_USERDIR", user_dir().c_str());
+#endif
 	// "0"/"1", always written for the same long-lived-process reason as above.
 	set_env_both(L"POB_ZH_FONT_ALL", fontApplyAll ? L"1" : L"0");
 	// Percent, always written; sys_video.cpp reads it right after glfwCreateWindow.
@@ -520,7 +542,8 @@ int RunPobLaunchSelfTest(const std::wstring& exeDir)
 	{
 		SetEnvironmentVariableW(L"POB_GAME", L"poe1");
 		SetEnvironmentVariableW(L"POB_LOCALE", L"zh-rTW");
-		SetEnvironmentVariableW(L"POB_ZH_FONTDIR", exeDir.c_str());
+		// Same as host_main: Fonts/ is in the user directory on macOS.
+		SetEnvironmentVariableW(L"POB_ZH_FONTDIR", data_dir_for(exeDir).c_str());
 		std::vector<wchar_t> blk = tool_environment_block();
 		bool hasGame = false, hasLocale = false, hasFontDir = false, hasPath = false;
 		for (const wchar_t* p = blk.data(); p && *p; p += wcslen(p) + 1) {
@@ -595,8 +618,8 @@ int RunPobLaunchSelfTest(const std::wstring& exeDir)
 
 	// The remembered compatibility verdict of the new interface.
 	{
-		const std::wstring dir = exeDir + L"PobTools\\selftest_gate\\";
-		CreateDirectoryW((exeDir + L"PobTools").c_str(), nullptr);
+		const std::wstring dir = user_dir_for(exeDir) + L"PobTools\\selftest_gate\\";
+		CreateDirectoryW((user_dir_for(exeDir) + L"PobTools").c_str(), nullptr);
 		CreateDirectoryW(dir.c_str(), nullptr);
 		DeleteFileW(BridgeGate::GatePath(dir).c_str());
 		BridgeGate::Verdict none = BridgeGate::Read(dir);
@@ -710,8 +733,8 @@ int RunPobLaunchSelfTest(const std::wstring& exeDir)
 	}
 
 	report += failures ? "RESULT FAIL\n" : "RESULT PASS\n";
-	CreateDirectoryW((exeDir + L"PobTools").c_str(), nullptr);
-	HANDLE h = CreateFileW((exeDir + L"PobTools\\pob_launch_selftest.txt").c_str(),
+	CreateDirectoryW((user_dir_for(exeDir) + L"PobTools").c_str(), nullptr);
+	HANDLE h = CreateFileW((user_dir_for(exeDir) + L"PobTools\\pob_launch_selftest.txt").c_str(),
 	                       GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
 	if (h != INVALID_HANDLE_VALUE) {
 		DWORD w = 0;

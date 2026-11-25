@@ -17,7 +17,7 @@ json ModernUiPrefs(const std::wstring& exeDir, const std::wstring& game, const L
 	for (const std::wstring& f : ListAvailableFonts(exeDir)) fonts.push_back(narrow(f));
 	// The launcher's own choice, re-read: "follow the launcher" must show what
 	// the launcher uses NOW, not what it used when this window opened.
-	const LauncherConfig fromIni = LoadLauncherConfig(exeDir + L"pob-zh.ini");
+	const LauncherConfig fromIni = LoadLauncherConfig(user_dir_for(exeDir) + L"pob-zh.ini");
 	const std::wstring launcherFont = fromIni.fontFile;
 	// Background: this window's game only. "launcherLook" is the launcher's
 	// Appearance set, re-read for the same reason as the font.
@@ -41,7 +41,7 @@ json ModernUiPrefs(const std::wstring& exeDir, const std::wstring& game, const L
 void ModernUiSetPrefs(const std::wstring& exeDir, const std::wstring& game, const json& params, LauncherConfig& cfg)
 {
 	// Like SaveWindowSize: re-read (the launcher may have written other keys), change ours, write.
-	LauncherConfig fresh = LoadLauncherConfig(exeDir + L"pob-zh.ini");
+	LauncherConfig fresh = LoadLauncherConfig(user_dir_for(exeDir) + L"pob-zh.ini");
 	if (params.contains("zoom")) fresh.modernZoom = ClampModernZoom(params.value("zoom", kModernZoomDefault));
 	if (params.contains("fontSize")) fresh.modernFontSize = ClampModernFontSize(params.value("fontSize", kModernFontSizeDefault));
 	cfg.modernZoom = fresh.modernZoom;
@@ -80,7 +80,7 @@ void ModernUiSetPrefs(const std::wstring& exeDir, const std::wstring& game, cons
 		}
 		cfg.modernLook[GameIndex(game)] = m;
 	}
-	SaveLauncherConfig(exeDir + L"pob-zh.ini", fresh);
+	SaveLauncherConfig(user_dir_for(exeDir) + L"pob-zh.ini", fresh);
 }
 
 bool ModernUiPathUnderPob(const std::wstring& pobDir, const std::wstring& path)

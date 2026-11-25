@@ -201,7 +201,7 @@ int RunTransEditorSelftest(const std::wstring& exeDir)
 	// against the shipped dictionaries: Shadowed exactly when a full replay of
 	// load_order says another file's copy is the one POB uses
 	{
-		const std::wstring slot = exeDir + L"Data\\poe1\\";
+		const std::wstring slot = data_dir_for(exeDir) + L"Data\\poe1\\";
 		EditorModel m = LoadModel(slot, "zh-rTW");
 		std::map<std::string, std::string> winner;
 		for (const std::string& fname : m.loadOrder)
@@ -343,7 +343,7 @@ int RunTransEditorSelftest(const std::wstring& exeDir)
 	std::map<std::wstring, unsigned long long> origHash;   // the real files, before
 	bool copied = true;
 	for (const Src& s : srcs) {
-		const std::wstring from = exeDir + L"Data\\" + s.slot + L"\\" + s.locale + L"\\";
+		const std::wstring from = data_dir_for(exeDir) + L"Data\\" + s.slot + L"\\" + s.locale + L"\\";
 		const std::wstring to = root + L"Data\\" + s.slot + L"\\" + s.locale + L"\\";
 		CreateDirectoryW((root + L"Data\\" + s.slot + L"\\").c_str(), nullptr);
 		for (const std::wstring& f : listFiles(from, L"*.json")) {
@@ -592,7 +592,7 @@ int RunTransEditorSelftest(const std::wstring& exeDir)
 		}
 		bool noLitter = true;
 		for (const Src& s : srcs) {
-			const std::wstring dir = exeDir + L"Data\\" + s.slot + L"\\" + s.locale + L"\\";
+			const std::wstring dir = data_dir_for(exeDir) + L"Data\\" + s.slot + L"\\" + s.locale + L"\\";
 			if (!listFiles(dir, L"*.bak").empty() || !listFiles(dir, L"*.tmp").empty() || !listFiles(dir, L"*.rt").empty())
 				noLitter = false;
 		}

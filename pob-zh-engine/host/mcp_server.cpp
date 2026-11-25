@@ -91,7 +91,7 @@ public:
 		// One sandbox per server process: Claude Desktop, Claude Code and Codex
 		// may each run one at the same time, and POB rewrites Settings.xml and
 		// Builds\ in its own folder.
-		root_ = exeDir_ + L"PobTools\\mcp_sandbox";
+		root_ = user_dir_for(exeDir_) + L"PobTools\\mcp_sandbox";
 		ownDir_ = root_ + L"\\" + std::to_wstring(GetCurrentProcessId());
 		sandbox_ = ownDir_ + L"\\PathOfBuildingCommunity";
 		wchar_t env[2048] = {};
@@ -497,7 +497,7 @@ json CallTool(Engine& eng, const std::string& name, const json& args, bool debug
 	// Static reading guide: answered without waiting for the engine, so a model
 	// can read it while POB is still starting.
 	if (name == "build_guide") {
-		const std::string text = ReadAll(g_exeDir + L"Data\\bridge\\mcp_guide.md");
+		const std::string text = ReadAll(data_dir_for(g_exeDir) + L"Data\\bridge\\mcp_guide.md");
 		if (text.empty()) return ToolError("Data\\bridge\\mcp_guide.md is missing from this PobTools install.");
 		return ToolResult(json{{"text", text}}, false);
 	}
@@ -584,7 +584,7 @@ int RunMcpServer(const std::wstring& exeDir, const std::wstring& pobDirOverride)
 	wchar_t dbg[8] = {};
 	const bool debug = GetEnvironmentVariableW(L"POB_ZH_MCP_DEBUG", dbg, 8) > 0 && dbg[0] == L'1';
 
-	json toolsDoc = json::parse(ReadAll(exeDir + L"Data\\bridge\\mcp_tools.json"), nullptr, false);
+	json toolsDoc = json::parse(ReadAll(data_dir_for(exeDir) + L"Data\\bridge\\mcp_tools.json"), nullptr, false);
 	if (!toolsDoc.is_object()) {
 		PobLog::Error("mcp", "Data\\bridge\\mcp_tools.json missing or invalid");
 		toolsDoc = json{{"tools", json::array()}};

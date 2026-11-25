@@ -730,8 +730,8 @@ int RunPobProtocolSelfTest(const std::wstring& exeDir)
 		report += std::to_string(pass) + "/" + std::to_string(total) + " passed\n";
 	}
 	report += failures ? "RESULT FAIL\n" : "RESULT PASS\n";
-	CreateDirectoryW((exeDir + L"PobTools").c_str(), nullptr);
-	HANDLE h = CreateFileW((exeDir + L"PobTools\\pob_protocol_selftest.txt").c_str(), GENERIC_WRITE, 0, nullptr,
+	CreateDirectoryW((user_dir_for(exeDir) + L"PobTools").c_str(), nullptr);
+	HANDLE h = CreateFileW((user_dir_for(exeDir) + L"PobTools\\pob_protocol_selftest.txt").c_str(), GENERIC_WRITE, 0, nullptr,
 	                       CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
 	if (h != INVALID_HANDLE_VALUE) {
 		DWORD w = 0;

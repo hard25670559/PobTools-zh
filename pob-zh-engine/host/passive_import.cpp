@@ -193,7 +193,7 @@ struct ZhTranslator {
 		static const wchar_t* kFiles[] = { L"stats.json", L"ui.json", L"passives.json" };
 		for (int i = 0; i < 3; i++) {
 			std::string content;
-			if (!read_file_utf8(exeDir + L"Data\\poe1\\zh-rTW\\" + kFiles[i], content)) continue;
+			if (!read_file_utf8(data_dir_for(exeDir) + L"Data\\poe1\\zh-rTW\\" + kFiles[i], content)) continue;
 			try {
 				ordered_json doc = ordered_json::parse(content);
 				if (!doc.contains("entries") || !doc["entries"].is_object()) continue;
@@ -626,9 +626,9 @@ bool ImportPassiveTreeData(const std::wstring& dataJsonPath, const std::string& 
 		srcDir = (slash == std::wstring::npos) ? L"" : srcDir.substr(0, slash + 1);
 		std::wstring poe1Base = FindPoe1Dir(exeDir); // L"" when no PoB install detected
 		std::wstring pobDir = poe1Base.empty() ? L"" : poe1Base + L"TreeData\\" + widen(ver) + L"\\";
-		SHCreateDirectoryExW(nullptr, (exeDir + L"Data\\tree").c_str(), nullptr);
+		SHCreateDirectoryExW(nullptr, (data_dir_for(exeDir) + L"Data\\tree").c_str(), nullptr);
 		for (const std::string& base : sheets.baseNames) {
-			std::wstring dst = exeDir + L"Data\\tree\\" + widen(base);
+			std::wstring dst = data_dir_for(exeDir) + L"Data\\tree\\" + widen(base);
 			std::wstring pobSrc = pobDir.empty() ? L"" : pobDir + widen(base);
 			std::wstring gggSrc = srcDir + L"assets\\" + widen(base);
 			const std::wstring& src = (!pobSrc.empty() && file_exists(pobSrc)) ? pobSrc : gggSrc;
@@ -638,7 +638,7 @@ bool ImportPassiveTreeData(const std::wstring& dataJsonPath, const std::string& 
 		// .part then rename: a half-written tree would still report the new treeVersion (read from the file head),
 		// so the updater would call it current while the tree itself no longer parses
 		const std::string text = out.dump();
-		if (!DataUpdaterWriteCacheFile(exeDir + L"Data\\passive_tree_poe1.json", { text.begin(), text.end() }))
+		if (!DataUpdaterWriteCacheFile(data_dir_for(exeDir) + L"Data\\passive_tree_poe1.json", { text.begin(), text.end() }))
 			return fail(u8"寫入 Data/passive_tree_poe1.json 失敗");
 
 		if (summary) {

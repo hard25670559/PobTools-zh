@@ -1,3 +1,4 @@
+#include "win_util.h"
 #include "atlas_mechanics.h"
 
 #include "atlas_tree_data.h"      // selftest: resolve node ids against a real season
@@ -366,7 +367,7 @@ bool AtlasMechanicDb::loadOne(const std::wstring& exeDir, const std::string& tag
 	unassigned_ = 0;
 
 	std::wstring path = tag.empty()
-		? exeDir + L"Data\\atlas_mechanics.json"
+		? data_dir_for(exeDir) + L"Data\\atlas_mechanics.json"
 		: AtlasVersionIndex::VersionDir(exeDir, tag) + L"atlas_mechanics.json";
 	std::string body;
 	if (!mech_read_file(path, body)) return false;

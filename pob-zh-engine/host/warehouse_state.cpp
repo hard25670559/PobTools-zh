@@ -1,3 +1,4 @@
+#include "win_util.h"
 #include "warehouse_state.h"
 
 #if defined(_WIN32)
@@ -22,7 +23,7 @@ namespace {
 
 std::wstring StatePath(const std::wstring& exeDir)
 {
-	return exeDir + L"PobTools\\warehouse_ui.json";
+	return user_dir_for(exeDir) + L"PobTools\\warehouse_ui.json";
 }
 
 bool ReadAll(const std::wstring& path, std::string& out)
@@ -201,7 +202,7 @@ bool WarehouseUiState::Load(const std::wstring& exeDir)
 
 bool WarehouseUiState::Save(const std::wstring& exeDir, bool writeSecret) const
 {
-	CreateDirectoryW((exeDir + L"PobTools").c_str(), nullptr);
+	CreateDirectoryW((user_dir_for(exeDir) + L"PobTools").c_str(), nullptr);
 
 	// What the credential fields will say. Ours only when this save is about
 	// them; otherwise whatever the file already holds, so another panel's clear
@@ -260,12 +261,12 @@ namespace {
 
 std::wstring GuardPath(const std::wstring& exeDir)
 {
-	return exeDir + L"PobTools\\warehouse_guard.json";
+	return user_dir_for(exeDir) + L"PobTools\\warehouse_guard.json";
 }
 
 bool SaveGuard(const std::wstring& exeDir, const WarehouseGuard& g)
 {
-	CreateDirectoryW((exeDir + L"PobTools").c_str(), nullptr);
+	CreateDirectoryW((user_dir_for(exeDir) + L"PobTools").c_str(), nullptr);
 	ordered_json doc;
 	doc["schema"] = 1;
 	doc["lastSnapshotStartUtc"] = g.lastSnapshotStartUtc;

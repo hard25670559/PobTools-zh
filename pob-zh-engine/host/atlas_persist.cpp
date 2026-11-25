@@ -192,7 +192,7 @@ static void write_extras(ordered_json& obj, const AtlasBuildEntry& e)
 
 std::wstring AtlasBuildFile::PathOf(const std::wstring& exeDir)
 {
-	return exeDir + L"PobTools\\atlas_build_poe1.json";
+	return user_dir_for(exeDir) + L"PobTools\\atlas_build_poe1.json";
 }
 
 bool AtlasBuildFile::ParseDoc(const std::string& json)
@@ -298,7 +298,7 @@ bool AtlasBuildFile::Load(const std::wstring& exeDir)
 
 bool AtlasBuildFile::Save(const std::wstring& exeDir) const
 {
-	CreateDirectoryW((exeDir + L"PobTools").c_str(), nullptr); // ok if it exists
+	CreateDirectoryW((user_dir_for(exeDir) + L"PobTools").c_str(), nullptr); // ok if it exists
 	return write_file_utf8(PathOf(exeDir), SerializeDoc());
 }
 
@@ -427,7 +427,7 @@ bool AtlasParseShareCode(const std::string& code, AtlasBuildEntry* out, std::str
 
 static std::wstring ui_state_path(const std::wstring& exeDir)
 {
-	return exeDir + L"PobTools\\atlas_ui.json";
+	return user_dir_for(exeDir) + L"PobTools\\atlas_ui.json";
 }
 
 bool AtlasUiState::Load(const std::wstring& exeDir)
@@ -449,7 +449,7 @@ bool AtlasUiState::Load(const std::wstring& exeDir)
 
 bool AtlasUiState::Save(const std::wstring& exeDir) const
 {
-	CreateDirectoryW((exeDir + L"PobTools").c_str(), nullptr);
+	CreateDirectoryW((user_dir_for(exeDir) + L"PobTools").c_str(), nullptr);
 	ordered_json doc;
 	doc["panelW"] = panelW;
 	if (!season.empty()) doc["season"] = season;

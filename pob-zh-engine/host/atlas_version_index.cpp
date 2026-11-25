@@ -43,13 +43,13 @@ int AtlasVersionIndex::CompareSemver(const std::string& a, const std::string& b)
 
 std::wstring AtlasVersionIndex::IndexPath(const std::wstring& exeDir)
 {
-	return exeDir + L"Data\\atlas_index.json";
+	return data_dir_for(exeDir) + L"Data\\atlas_index.json";
 }
 
 std::wstring AtlasVersionIndex::VersionDir(const std::wstring& exeDir, const std::string& tag)
 {
 	std::wstring w(tag.begin(), tag.end()); // tags are ASCII (semver)
-	return exeDir + L"Data\\atlas_versions\\" + w + L"\\";
+	return data_dir_for(exeDir) + L"Data\\atlas_versions\\" + w + L"\\";
 }
 
 std::wstring AtlasVersionIndex::ResolveDataDir(const std::wstring& exeDir, const std::string& tag) const
@@ -59,7 +59,7 @@ std::wstring AtlasVersionIndex::ResolveDataDir(const std::wstring& exeDir, const
 		std::wstring vd = VersionDir(exeDir, t);
 		if (file_exists(vd + L"atlas_tree_poe1.json")) return vd;
 	}
-	return exeDir + L"Data\\"; // legacy flat layout
+	return data_dir_for(exeDir) + L"Data\\"; // legacy flat layout
 }
 
 // registry
@@ -103,7 +103,7 @@ void AtlasVersionIndex::adoptFromDisk(const std::wstring& exeDir)
 {
 	// The index is a cache of what is on disk, not the reverse: a season folder with real data missing from
 	// atlas_index.json (interrupted update, hand-copied folder, older backup) would stay invisible to the planner forever.
-	std::wstring glob = exeDir + L"Data\\atlas_versions\\*";
+	std::wstring glob = data_dir_for(exeDir) + L"Data\\atlas_versions\\*";
 	WIN32_FIND_DATAW fd{};
 	HANDLE h = FindFirstFileW(glob.c_str(), &fd);
 	if (h == INVALID_HANDLE_VALUE) return;
@@ -249,7 +249,7 @@ void AtlasVersionIndex::Load(const std::wstring& exeDir)
 
 	// Legacy migration: single-slot Data/atlas_version.json {tag,sha,repoe,lastCheckUtc}.
 	std::string legacy;
-	if (read_file_utf8(exeDir + L"Data\\atlas_version.json", legacy)) {
+	if (read_file_utf8(data_dir_for(exeDir) + L"Data\\atlas_version.json", legacy)) {
 		try {
 			ordered_json doc = ordered_json::parse(legacy);
 			AtlasVersionEntry e;
@@ -285,7 +285,7 @@ bool AtlasVersionIndex::Save(const std::wstring& exeDir) const
 	doc["lastCheckUtc"] = lastCheckUtc_;
 
 	// ensure Data/ exists (it always should, but be safe for headless tooling)
-	CreateDirectoryW((exeDir + L"Data").c_str(), nullptr);
+	CreateDirectoryW((data_dir_for(exeDir) + L"Data").c_str(), nullptr);
 	bool ok = write_file_utf8(IndexPath(exeDir), doc.dump(1, '\t'));
 	if (ok) dirty_ = false;
 	return ok;
@@ -423,7 +423,7 @@ int RunAtlasVersionIndexSelfTest(const std::wstring& exeDir)
 	// against the REAL install: every season folder holding a tree must be reachable through the index
 	// (the in-memory cases above cannot catch an index that never listed an on-disk folder).
 	{
-		std::wstring root = exeDir + L"Data\\atlas_versions\\";
+		std::wstring root = data_dir_for(exeDir) + L"Data\\atlas_versions\\";
 		std::vector<std::string> onDisk;
 		WIN32_FIND_DATAW fd{};
 		HANDLE h = FindFirstFileW((root + L"*").c_str(), &fd);

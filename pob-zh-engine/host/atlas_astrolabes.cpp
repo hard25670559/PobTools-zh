@@ -1,3 +1,4 @@
+#include "win_util.h"
 #include "atlas_astrolabes.h" // pulls in atlas_persist.h for AstrolabePlacement
 
 #include "atlas_stat_agg.h"  // ToLowerAscii / StripStatMarkup
@@ -50,7 +51,7 @@ bool AstrolabeDb::Load(const std::wstring& exeDir, std::string* err)
 	source_.clear();
 
 	std::string body;
-	if (!astro_read_file(exeDir + L"Data\\astrolabes_poe1.json", body)) {
+	if (!astro_read_file(data_dir_for(exeDir) + L"Data\\astrolabes_poe1.json", body)) {
 		if (err) *err = u8"找不到 Data\\astrolabes_poe1.json";
 		return false;
 	}

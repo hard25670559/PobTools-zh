@@ -13,6 +13,7 @@
 //
 // Never writes the install's own dictionaries or pob-zh.ini.
 
+#include "win_util.h"
 #include "dict_switch_selftest.h"
 
 #if defined(_WIN32)
@@ -165,7 +166,7 @@ int RunDictSwitchSelfTest(const std::wstring& exeDir)
 	// 4. shipped data
 	printf("\n--- shipped Data\\poe1\\zh-rTW ---\n");
 	{
-		const std::wstring dir = exeDir + L"Data\\poe1\\zh-rTW\\";
+		const std::wstring dir = data_dir_for(exeDir) + L"Data\\poe1\\zh-rTW\\";
 		const std::string meta = slurp(dir + L"meta.json");
 		const size_t lo = meta.find("\"load_order\"");
 		const size_t close = lo == std::string::npos ? std::string::npos : meta.find(']', lo);

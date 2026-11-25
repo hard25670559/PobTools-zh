@@ -1,3 +1,4 @@
+#include "win_util.h"
 #include "window_dock.h"
 
 #include "window_manager.h"
@@ -748,8 +749,8 @@ int RunDockStyleSelfTest(const std::wstring& exeDir)
 	check("S9 the suite actually ran", ran >= 22, std::to_string(ran) + " checks");
 
 	report += failures ? "RESULT FAIL\n" : "RESULT PASS\n";
-	CreateDirectoryW((exeDir + L"PobTools").c_str(), nullptr);
-	HANDLE h = CreateFileW((exeDir + L"PobTools\\dock_style_selftest.txt").c_str(),
+	CreateDirectoryW((user_dir_for(exeDir) + L"PobTools").c_str(), nullptr);
+	HANDLE h = CreateFileW((user_dir_for(exeDir) + L"PobTools\\dock_style_selftest.txt").c_str(),
 	                       GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS,
 	                       FILE_ATTRIBUTE_NORMAL, nullptr);
 	if (h != INVALID_HANDLE_VALUE) {

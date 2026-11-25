@@ -47,10 +47,10 @@ static void load_flat(const std::wstring& path, std::unordered_map<std::string, 
 void FilterI18n::Load(const std::wstring& exeDir, const std::string& locale)
 {
 	// 1. Complete bundled TC item names (repoe-fork derived) — primary source.
-	load_flat(exeDir + L"Data\\filter_items_zh.json", names_);
+	load_flat(data_dir_for(exeDir) + L"Data\\filter_items_zh.json", names_);
 
 	// 2. Engine dictionaries fill anything the bundled set lacks (first value wins).
-	std::wstring dir = exeDir + L"Data\\poe1\\" + widen(locale) + L"\\";
+	std::wstring dir = data_dir_for(exeDir) + L"Data\\poe1\\" + widen(locale) + L"\\";
 	// base items the catalog lacks: the filter search's fallback (not uniques.json)
 	{
 		std::unordered_map<std::string, std::string> bases;
@@ -62,14 +62,14 @@ void FilterI18n::Load(const std::wstring& exeDir, const std::string& locale)
 	}
 	// Names the boss-profit panel shows that the catalog file lacks. Kept out of that file on
 	// purpose: every key there becomes a row of the filter item library, and these have no class.
-	load_flat(exeDir + L"Data\\boss_items_zh.json", names_);
+	load_flat(data_dir_for(exeDir) + L"Data\\boss_items_zh.json", names_);
 	for (const wchar_t* f : { L"items.json", L"uniques.json", L"gems.json", L"ui.json" })
 		load_entries(dir + f, names_);
 
 	// 3. Per-item class + tags (repoe-fork) for ALL items.
 	{
 		std::string content;
-		if (read_file_utf8(exeDir + L"Data\\item_meta.json", content)) {
+		if (read_file_utf8(data_dir_for(exeDir) + L"Data\\item_meta.json", content)) {
 			try {
 				ordered_json doc = ordered_json::parse(content);
 				if (doc.is_object())
@@ -92,9 +92,9 @@ void FilterI18n::Load(const std::wstring& exeDir, const std::string& locale)
 
 	// 5. Item-class Chinese labels: bundled repoe-fork map (complete) first, then
 	// the engine's item_metadata.json as a fallback.
-	load_flat(exeDir + L"Data\\item_classes_zh.json", classZh_);
+	load_flat(data_dir_for(exeDir) + L"Data\\item_classes_zh.json", classZh_);
 	// 5b. class id -> in-game English class name (what the Class condition matches).
-	load_flat(exeDir + L"Data\\item_classes_en.json", classEn_);
+	load_flat(data_dir_for(exeDir) + L"Data\\item_classes_en.json", classEn_);
 	{
 		std::string content;
 		if (read_file_utf8(dir + L"item_metadata.json", content)) {
