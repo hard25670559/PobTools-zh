@@ -3021,7 +3021,20 @@ static void log_translation_miss(const char *tag, const std::string &text) {
         char envbuf[16];
         const char *env = win_env("POB_TR_LOG", envbuf, sizeof(envbuf));
         if (!(env && env[0] == '0')) {
-            std::string path = get_exe_directory() + "translate_misses.log";
+            /* Not beside the executable on macOS: that is a signed app bundle,
+             * and one line written into it invalidates the signature -- the
+             * program is then refused by the system on its next launch. The
+             * launcher names a writable place (host/win_util.h, user_dir). */
+            std::string dir = get_exe_directory();
+#if defined(__APPLE__)
+            char userbuf[1024];
+            const char *ud = win_env("POB_ZH_USERDIR", userbuf, sizeof(userbuf));
+            if (ud && *ud) {
+                dir = ud;
+                if (dir.back() != '/' && dir.back() != '\\') dir += '/';
+            }
+#endif
+            std::string path = dir + "translate_misses.log";
             s_fp = fopen(fs_open_path(path).c_str(), "wb"); /* truncate: latest session only */
             if (s_fp) {
                 fprintf(s_fp, "# untranslated strings (locale=%s) - unique per session, POB_TR_LOG=0 to disable\n",
